@@ -1,0 +1,471 @@
+:root {
+    --bg: #0a0c0f;
+    --surface: #111419;
+    --border: #1e2330;
+    --accent: #00ff88;
+    --accent2: #0af;
+    --danger: #ff4455;
+    --warn: #ffaa00;
+    --muted: #4a5568;
+    --text: #c9d1d9;
+    --bright: #e6edf3;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+}
+
+/* ── Header ── */
+header {
+    border-bottom: 1px solid var(--border);
+    padding: 1.2rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--surface);
+}
+
+.logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+}
+
+.logo span {
+    color: var(--muted);
+}
+
+.badge {
+    background: rgba(0, 255, 136, .1);
+    color: var(--accent);
+    border: 1px solid rgba(0, 255, 136, .3);
+    padding: .2rem .6rem;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .7rem;
+}
+
+.disclaimer {
+    margin-left: auto;
+    font-size: .75rem;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Layout ── */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+/* ── Panel ── */
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.panel-header {
+    padding: .8rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .8rem;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.panel-body {
+    padding: 1.2rem;
+}
+
+/* ── Form ── */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .75rem;
+    color: var(--muted);
+    margin-bottom: .4rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: .65rem .9rem;
+    color: var(--bright);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .85rem;
+    transition: border-color .2s;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.hint {
+    font-size: .72rem;
+    color: var(--muted);
+    margin-top: .3rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Buttons ── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .7rem 1.4rem;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .85rem;
+    font-weight: 600;
+    transition: all .15s;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #000;
+    width: 100%;
+    justify-content: center;
+    margin-top: .5rem;
+}
+
+.btn-primary:hover {
+    background: #00e07a;
+}
+
+.btn-primary:disabled {
+    background: var(--muted);
+    cursor: not-allowed;
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    font-size: .78rem;
+    padding: .4rem .9rem;
+    width: 100%;
+    justify-content: center;
+    margin-top: .5rem;
+}
+
+.btn-danger:hover {
+    background: rgba(255, 68, 85, .1);
+}
+
+/* ── Terminal output ── */
+.terminal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .8rem;
+    height: 280px;
+    overflow-y: auto;
+    padding: 1rem;
+    line-height: 1.7;
+}
+
+.terminal:empty::before {
+    content: '$ Изчакване на скан...';
+    color: var(--muted);
+}
+
+.log-nmap {
+    color: var(--accent2);
+}
+
+.log-gobuster {
+    color: var(--warn);
+}
+
+.log-dns {
+    color: #c084fc;
+}
+
+.log-done {
+    color: var(--accent);
+}
+
+.log-error {
+    color: var(--danger);
+}
+
+.log-skip {
+    color: var(--muted);
+}
+
+/* ── Results tabs ── */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab {
+    padding: .7rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .78rem;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: all .15s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+}
+
+.tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.tab-count {
+    background: var(--border);
+    border-radius: 3px;
+    padding: .1rem .4rem;
+    font-size: .7rem;
+    margin-left: .3rem;
+}
+
+.tab-panel {
+    display: none;
+    padding: 1rem;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+/* ── Tables ── */
+.result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .8rem;
+}
+
+.result-table th {
+    text-align: left;
+    padding: .5rem .8rem;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+    text-transform: uppercase;
+    font-size: .7rem;
+    letter-spacing: .05em;
+}
+
+.result-table td {
+    padding: .5rem .8rem;
+    border-bottom: 1px solid rgba(30, 35, 48, .6);
+    color: var(--text);
+    vertical-align: top;
+}
+
+.result-table tr:hover td {
+    background: rgba(255, 255, 255, .02);
+}
+
+.port-num {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.service-name {
+    color: var(--accent2);
+}
+
+.http-badge {
+    background: rgba(0, 170, 255, .15);
+    color: var(--accent2);
+    border: 1px solid rgba(0, 170, 255, .3);
+    padding: .1rem .4rem;
+    border-radius: 3px;
+    font-size: .68rem;
+}
+
+.status-200 {
+    color: var(--accent);
+}
+
+.status-301, .status-302 {
+    color: var(--warn);
+}
+
+.status-403 {
+    color: var(--danger);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .8rem;
+}
+
+/* ── Session history ── */
+.session-list {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+.session-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: .7rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    cursor: pointer;
+    transition: border-color .15s;
+    text-decoration: none;
+}
+
+.session-card:hover {
+    border-color: var(--accent);
+}
+
+.session-target {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .85rem;
+    color: var(--bright);
+    flex: 1;
+}
+
+.session-meta {
+    font-size: .72rem;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dot-completed {
+    background: var(--accent);
+}
+
+.dot-running {
+    background: var(--warn);
+    animation: pulse 1s infinite;
+}
+
+.dot-failed {
+    background: var(--danger);
+}
+
+.dot-pending {
+    background: var(--muted);
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .3;
+    }
+}
+
+/* ── Progress stages ── */
+.stages {
+    display: flex;
+    gap: .5rem;
+    margin-bottom: 1rem;
+}
+
+.stage {
+    flex: 1;
+    padding: .5rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .72rem;
+    color: var(--muted);
+    transition: all .3s;
+}
+
+.stage.active {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+
+.stage.done {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.stage.error {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+    width: 4px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+}
+
+/* ── Top actions ── */
+.top-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .8rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}

@@ -1,0 +1,177 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReconKit — Pentesting Recon Tool</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@400;600&display=swap"
+          rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'core/css/style.css' %}"/>
+</head>
+<body>
+
+<header>
+    <div class="logo">Recon<span>/</span>Kit</div>
+    <div class="badge">v1.0</div>
+    <div class="disclaimer">⚠ For use only on systems with explicit permission</div>
+</header>
+
+<div class="container">
+
+    <!-- ── Лява колона: форма + история ── -->
+    <div>
+        <div class="panel" style="margin-bottom:1.5rem">
+            <div class="panel-header">▶ New scan</div>
+            <div class="panel-body">
+
+                <div class="form-group">
+                    <label>Target (IP or domain)</label>
+                    <input type="text" id="target" placeholder="10.10.10.1 или example.com">
+                </div>
+
+                <div class="form-group">
+                    <label>nmap flags</label>
+                    <input type="text" id="nmap_flags" value="-sV -sC --open">
+                    <div class="hint">-p- is added automatically</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Wordlist — directories (gobuster)</label>
+                    <input type="text" id="dir_wordlist" value="{{ default_dir_wordlist }}">
+                    <div class="hint">Leave blank to skip</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Wordlist — DNS subdomains</label>
+                    <input type="text" id="dns_wordlist" value="{{ default_dns_wordlist }}">
+                    <div class="hint">Leave blank to skip</div>
+                </div>
+
+                <button class="btn btn-primary" id="startBtn" onclick="startScan()">
+                    ▶ Start scan
+                </button>
+                <button class="btn btn-danger" onclick="stopScan()">
+                    ■ Stop scan
+                </button>
+            </div>
+        </div>
+
+        <!-- История -->
+        <div class="panel">
+            <div class="panel-header" style="justify-content:space-between">
+                <span>⟳ History</span>
+                <button class="btn btn-danger" onclick="clearDB()">✕ Clear DB</button>
+            </div>
+            <div class="panel-body">
+                <div class="session-list" id="sessionList">
+                    {% for s in sessions %}
+                        <a class="session-card" href="/scan/{{ s.id }}/">
+                            <div class="status-dot dot-{{ s.status }}"></div>
+                            <div class="session-target">{{ s.target }}</div>
+                            <div class="session-meta">
+                                {{ s.ports.count }}p · {{ s.directories.count }}d · {{ s.dns_records.count }}dns
+                                <br>{{ s.created_at|date:"d.m H:i" }}
+                            </div>
+                        </a>
+                    {% empty %}
+                        <div class="empty-state">No scans</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Дясна колона: live резултати ── -->
+    <div>
+        <div class="panel">
+            <div class="panel-header">◈ Live results</div>
+            <div class="panel-body">
+
+                <!-- Прогрес стъпки -->
+                <div class="stages">
+                    <div class="stage" id="stage-nmap">nmap</div>
+                    <div class="stage" id="stage-gobuster">gobuster</div>
+                    <div class="stage" id="stage-dns">dns</div>
+                </div>
+
+                <!-- Terminal log -->
+                <div class="terminal" id="terminal"></div>
+
+                <!-- Tabs с резултати -->
+                <div style="margin-top:1.5rem">
+                    <div class="tabs">
+                        <button class="tab active" onclick="showTab('ports', this)">
+                            Ports <span class="tab-count" id="cnt-ports">0</span>
+                        </button>
+                        <button class="tab" onclick="showTab('dirs', this)">
+                            Directories <span class="tab-count" id="cnt-dirs">0</span>
+                        </button>
+                        <button class="tab" onclick="showTab('dns', this)">
+                            DNS <span class="tab-count" id="cnt-dns">0</span>
+                        </button>
+                    </div>
+
+                    <!-- Портове -->
+                    <div class="tab-panel active" id="tab-ports">
+                        <table class="result-table">
+                            <thead>
+                            <tr>
+                                <th>Port</th>
+                                <th>Protocol</th>
+                                <th>Service</th>
+                                <th>Product / Version</th>
+                            </tr>
+                            </thead>
+                            <tbody id="ports-body">
+                            <tr>
+                                <td colspan="4" class="empty-state">No results</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Директории -->
+                    <div class="tab-panel" id="tab-dirs">
+                        <table class="result-table">
+                            <thead>
+                            <tr>
+                                <th>URL</th>
+                                <th>Status</th>
+                                <th>Size</th>
+                            </tr>
+                            </thead>
+                            <tbody id="dirs-body">
+                            <tr>
+                                <td colspan="3" class="empty-state">No results</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- DNS -->
+                    <div class="tab-panel" id="tab-dns">
+                        <table class="result-table">
+                            <thead>
+                            <tr>
+                                <th>Subdomain</th>
+                                <th>Type</th>
+                                <th>Value</th>
+                            </tr>
+                            </thead>
+                            <tbody id="dns-body">
+                            <tr>
+                                <td colspan="3" class="empty-state">No results</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="{% static 'core/js/main.js' %}"></script>
+</body>
+</html>
