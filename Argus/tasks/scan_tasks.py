@@ -11,15 +11,30 @@ from scanner.dns_scanner import run_dns_enumeration
 
 def send_ws_update(session_id: int, message: dict):
     """Send update to WebSocket client."""
+    import asyncio
+
     channel_layer = get_channel_layer()
 
-    async_to_sync(channel_layer.group_send)(
-        f'scan_{session_id}',
-        {
-            'type': 'scan_update',
-            'message': message,
-        }
-    )
+    async def _send():
+        await channel_layer.group_send(
+            f'scan_{session_id}',
+            {
+                'type': 'scan_update',
+                'message': message,
+            }
+        )
+
+    # async_to_sync deadlock-ва при -P solo (loop вече върви в thread-а).
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            future = asyncio.run_coroutine_threadsafe(_send(), loop)
+            future.result(timeout=5)
+        else:
+            loop.run_until_complete(_send())
+    except Exception:
+        asyncio.run(_send())
 
 
 def should_stop(session_id):
@@ -98,15 +113,28 @@ def run_full_scan(self, session_id: int):
     })
 
     try:
-        for result in run_nmap_scan(session.target, session.nmap_flags):
+        for result in run_nmap_scan(session.id, session.target, session.nmap_flags):
 
             if should_stop(session.id):
                 stop_scan(session, "nmap")
+
+                session.status = 'stopped'
+                session.save()
+
+                send_ws_update(session.id, {
+                    'stage': 'nmap',
+                    'status': 'stopped',
+                    'message': '🛑 Scan stopped by user.'
+                })
+
                 return
 
-            if result['type'] == 'error':
-                fail_scan(session, 'nmap', result['message'])
-                return
+            if result['type'] == 'log':
+                send_ws_update(session.id, {
+                    'type': 'log',
+                    'message': result['message']
+                })
+                continue
 
             if result['type'] == 'port':
                 port_data = result['data']
@@ -235,6 +263,17 @@ def run_full_scan(self, session_id: int):
         stop_scan(session, "gobuster")
         return
 
+    if should_stop(session.id):
+        session.status = 'stopped'
+        session.save()
+
+        send_ws_update(session_id, {
+            'stage': 'all',
+            'status': 'stopped',
+            'message': '🛑 Scan stopped by user.',
+        })
+        return
+
     if session.dns_wordlist:
 
         send_ws_update(session_id, {
@@ -248,6 +287,16 @@ def run_full_scan(self, session_id: int):
                     session.target,
                     session.dns_wordlist
             ):
+                if should_stop(session.id):
+                    session.status = 'stopped'
+                    session.save()
+
+                    send_ws_update(session_id, {
+                        'stage': 'dns',
+                        'status': 'stopped',
+                        'message': '🛑 DNS enumeration stopped.',
+                    })
+                    return
 
                 if should_stop(session.id):
                     stop_scan(session, "dns")
@@ -307,3 +356,4 @@ def run_full_scan(self, session_id: int):
         'status': 'completed',
         'message': '🎯 Scanning is complete!',
     })
+    

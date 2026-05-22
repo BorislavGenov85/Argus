@@ -1,4 +1,6 @@
-from django.shortcuts import render, get_object_or_404, redirect
+import signal
+import os
+from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.conf import settings
@@ -6,7 +8,7 @@ from django.conf import settings
 from core.models import ScanSession, PortResult, DirectoryResult, DNSResult
 from tasks.scan_tasks import run_full_scan
 from django.views.decorators.csrf import ensure_csrf_cookie
-from celery.result import AsyncResult
+from celery import current_app
 
 
 @ensure_csrf_cookie
@@ -31,12 +33,12 @@ def index(request):
 def start_scan(request):
     """Създава нова сесия и пуска Celery task."""
     target = request.POST.get('target', '').strip()
-    nmap_flags = request.POST.get('nmap_flags', '-sV -sC --open').strip()
+    nmap_flags = request.POST.get('nmap_flags', '-T4 --open').strip()
     dir_wordlist = request.POST.get('dir_wordlist', '').strip()
     dns_wordlist = request.POST.get('dns_wordlist', '').strip()
 
     if not target:
-        return JsonResponse({'error': 'Въведи таргет!'}, status=400)
+        return JsonResponse({'error': 'Input target!'}, status=400)
 
     session = ScanSession.objects.create(
         target=target,
@@ -46,7 +48,9 @@ def start_scan(request):
     )
 
     # Пускаме async Celery task
-    run_full_scan.delay(session.id)
+    # countdown=2 дава време на браузъра да отвори WebSocket преди task-ът
+    # да изпрати първото съобщение — без това 'started' се губи в Redis
+    run_full_scan.apply_async(args=[session.id], countdown=2)
 
     return JsonResponse({'session_id': session.id, 'status': 'started'})
 
@@ -77,29 +81,10 @@ def session_status(request, session_id):
 
 
 @require_POST
-def stop_scan(request, session_id):
-    try:
-        session = ScanSession.objects.get(id=session_id)
-    except ScanSession.DoesNotExist:
-        return JsonResponse({'error': 'Session not found'}, status=404)
-
-    session.status = 'stopping'
-    session.save()
-
-    if session.task_id:
-        AsyncResult(session.task_id).revoke(terminate=True)
-
-    return JsonResponse({
-        'status': 'stopping',
-        'message': 'Scan stop requested.'
-    })
-
-
-@require_POST
 def clear_database(request):
     """Изтрива всички сканирания от БД."""
     ScanSession.objects.all().delete()
-    return JsonResponse({'status': 'cleared', 'message': 'Базата данни е изчистена.'})
+    return JsonResponse({'status': 'cleared', 'message': 'Database cleared.'})
 
 
 @require_POST
@@ -108,3 +93,44 @@ def delete_session(request, session_id):
     session = get_object_or_404(ScanSession, id=session_id)
     session.delete()
     return JsonResponse({'status': 'deleted'})
+
+
+@require_POST
+def stop_scan(request, session_id):
+
+    session = get_object_or_404(ScanSession, id=session_id)
+
+    session.status = 'stopping'
+    session.save()
+
+    try:
+        if session.nmap_pid:
+            os.killpg(os.getpgid(session.nmap_pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    try:
+        if session.gobuster_pid:
+            os.killpg(os.getpgid(session.gobuster_pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    try:
+        if session.dns_pid:
+            os.killpg(os.getpgid(session.dns_pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    if session.task_id:
+        current_app.control.revoke(
+            session.task_id,
+            terminate=True,
+            signal='SIGTERM'
+        )
+
+    session.status = 'stopped'
+    session.save()
+
+    return JsonResponse({
+        'status': 'stopped'
+    })

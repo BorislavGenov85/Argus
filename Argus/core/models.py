@@ -22,11 +22,14 @@ class ScanSession(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    nmap_pid = models.IntegerField(null=True, blank=True)
+    gobuster_pid = models.IntegerField(null=True, blank=True)
+    dns_pid = models.IntegerField(null=True, blank=True)
 
     # Опции за сканиране
     nmap_flags = models.CharField(
         max_length=500,
-        default='-sV -sC --open',
+        default='-T4 --open',
         help_text='Additional nmap flags'
     )
     dir_wordlist = models.CharField(max_length=500, blank=True)

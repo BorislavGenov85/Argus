@@ -16,6 +16,13 @@ class ScanConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
+        # Изпраща потвърждение към клиента че е свързан
+        # Celery task чака countdown=2s преди да стартира, така имаме буфер
+        await self.send(text_data=json.dumps({
+            'type': 'connected',
+            'message': '🔗 WebSocket connected. Waiting for scan to start...'
+        }))
+
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 

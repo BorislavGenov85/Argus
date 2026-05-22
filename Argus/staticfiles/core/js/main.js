@@ -57,12 +57,35 @@ function connectWebSocket(sessionId) {
 
 function handleMessage(msg) {
     const terminal = document.getElementById('terminal');
+    if (msg.type === 'connected') {
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        line.textContent = msg.message;
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+        return;
+    }
+    if (msg.type === 'log') {
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        line.textContent = msg.message;
+
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+
+        return;
+    }
     const {stage, status} = msg;
 
     // Лог в терминала
     const line = document.createElement('div');
     let cssClass = 'log-' + stage;
     if (status === 'error') cssClass = 'log-error';
+    if (status === 'stopped') cssClass = 'log-skip';
+    if (status === 'stopped') {
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('startBtn').textContent = '▶ Start scan';
+    }
     if (status === 'done' || status === 'completed') cssClass = 'log-done';
     if (status === 'skipped') cssClass = 'log-skip';
     line.className = cssClass;
@@ -76,6 +99,8 @@ function handleMessage(msg) {
     // Прогрес стъпки
     updateStage(stage, status);
 
+    if (status === 'stopped') { const el2 = document.getElementById(`stage-${stage}`); if (el2) el2.classList.add('error'); }
+
     // Добавяне на резултати в таблиците
     if (stage === 'nmap' && status === 'result') {
         addPortRow(msg);
@@ -86,9 +111,9 @@ function handleMessage(msg) {
     }
 
     // Финал
-    if (status === 'completed') {
+    if (status === 'completed' || status === 'stopped') {
         document.getElementById('startBtn').disabled = false;
-        document.getElementById('startBtn').textContent = '▶ Стартирай скан';
+        document.getElementById('startBtn').textContent = '▶ Start scan';
     }
 }
 
@@ -158,9 +183,9 @@ function showTab(name, btn) {
 
 function resetUI() {
     document.getElementById('terminal').innerHTML = '';
-    document.getElementById('ports-body').innerHTML = '<tr><td colspan="4" class="empty-state">Изчакване...</td></tr>';
-    document.getElementById('dirs-body').innerHTML = '<tr><td colspan="3" class="empty-state">Изчакване...</td></tr>';
-    document.getElementById('dns-body').innerHTML = '<tr><td colspan="3" class="empty-state">Изчакване...</td></tr>';
+    document.getElementById('ports-body').innerHTML = '<tr><td colspan="4" class="empty-state">Please wait...</td></tr>';
+    document.getElementById('dirs-body').innerHTML = '<tr><td colspan="3" class="empty-state">Please wait...</td></tr>';
+    document.getElementById('dns-body').innerHTML = '<tr><td colspan="3" class="empty-state">Please wait...</td></tr>';
     portCount.ports = portCount.dirs = portCount.dns = 0;
     document.getElementById('cnt-ports').textContent = '0';
     document.getElementById('cnt-dirs').textContent = '0';
@@ -171,7 +196,7 @@ function resetUI() {
 }
 
 async function clearDB() {
-    if (!confirm('Изтрий всички сканирания?')) return;
+    if (!confirm('Delete all scans?')) return;
     await fetch('/db/clear/', {
         method: 'POST',
         headers: {'X-CSRFToken': getCookie('csrftoken')}

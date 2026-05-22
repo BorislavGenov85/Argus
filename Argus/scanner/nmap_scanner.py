@@ -1,93 +1,143 @@
-import nmap
+import re
+import os
+import subprocess
+import signal
+
 from typing import Generator
+from core.models import ScanSession
 
-
-# HTTP услуги — по тях решаваме дали да пускаме gobuster
 HTTP_SERVICES = {'http', 'http-alt', 'https', 'ssl/http', 'http-proxy', 'https-alt'}
+
 HTTP_PORTS = {80, 443, 8080, 8443, 8000, 8008, 8888, 3000, 5000}
 
+# Fallback: normal output port line
+PORT_REGEX = re.compile(
+    r'^(\d+)\/(tcp|udp)\s+open\s+([^\s]+)\s*(.*)$'
+)
 
-def run_nmap_scan(target: str, flags: str = '-sV -sC --open') -> Generator[dict, None, None]:
-    """
-    Сканира таргета с nmap и yield-ва резултати в реално време.
 
-    Yields dict с:
-        type: 'port' | 'error' | 'done'
-        data: информацията за порта
-    """
-    nm = nmap.PortScanner()
+def run_nmap_scan(session_id: int, target: str, flags: str = '-T4 --open') -> Generator[dict, None, None]:
+    print("===== NEW NMAP CODE LOADED =====")
+    if not flags.strip():
+        flags = '-T4 -sV -Pn --top-ports 1000'
+
+    cmd = [
+        'stdbuf', '-oL', '-eL',
+        'nmap',
+        *flags.split(),
+        '--stats-every', '2s',
+        target
+    ]
 
     try:
-        # -p- сканира всички портове, комбинирано с потребителските флагове
-        full_flags = f'{flags} -p-'
-        nm.scan(hosts=target, arguments=full_flags)
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            preexec_fn=os.setsid
+        )
+        ScanSession.objects.filter(id=session_id).update(
+            nmap_pid=process.pid
+        )
 
-    except nmap.PortScannerError as e:
-        yield {'type': 'error', 'message': str(e)}
-        return
     except Exception as e:
-        yield {'type': 'error', 'message': f'Unexpected error: {str(e)}'}
+        yield {
+            'type': 'error',
+            'message': str(e)
+        }
         return
 
-    # Проверяваме дали таргетът е намерен
-    if target not in nm.all_hosts():
-        yield {'type': 'error', 'message': f'Host {target} not found or down.'}
+    if not process.stdout:
+        yield {
+            'type': 'error',
+            'message': 'No stdout from nmap process'
+        }
         return
 
-    host_data = nm[target]
+    for raw_line in iter(process.stdout.readline, ''):
 
-    # Минаваме през всички протоколи (tcp/udp)
-    for proto in host_data.all_protocols():
-        ports = sorted(host_data[proto].keys())
+        line = raw_line.strip()
 
-        for port in ports:
-            port_info = host_data[proto][port]
+        print(f"[RAW] {raw_line!r}")
 
-            if port_info['state'] != 'open':
-                continue
+        if not line:
+            continue
 
-            service_name = port_info.get('name', '')
-            product = port_info.get('product', '')
-            version = port_info.get('version', '')
+        yield {
+            'type': 'log',
+            'message': line
+        }
 
-            # Проверяваме дали е HTTP порт
-            is_http = (
-                service_name.lower() in HTTP_SERVICES
+        match = PORT_REGEX.search(line)
+
+        print(f"[MATCH] {match}")
+
+        if not match:
+            continue
+
+        port = int(match.group(1))
+        protocol = match.group(2)
+        service = match.group(3)
+        version = (match.group(4) or '').strip()
+
+        is_http = (
+                service.lower() in HTTP_SERVICES
                 or port in HTTP_PORTS
-                or 'http' in product.lower()
-            )
+                or 'http' in version.lower()
+        )
 
-            # Script output — от -sC флага
-            script_output = ''
-            if 'script' in port_info:
-                script_output = '\n'.join(
-                    f'{k}: {v}' for k, v in port_info['script'].items()
-                )
+        print(f"[FOUND PORT] {port}")
 
-            yield {
-                'type': 'port',
-                'data': {
-                    'port': port,
-                    'protocol': proto,
-                    'state': port_info['state'],
-                    'service': service_name,
-                    'product': product,
-                    'version': version,
-                    'extra_info': script_output,
-                    'is_http': is_http,
-                }
+        yield {
+            'type': 'port',
+            'data': {
+                'port': port,
+                'protocol': protocol,
+                'state': 'open',
+                'service': service,
+                'product': version,
+                'version': '',
+                'extra_info': '',
+                'is_http': is_http,
             }
+        }
 
-    yield {'type': 'done'}
+    process.wait()
+    print(f"[NMAP EXIT CODE] {process.returncode}")
+
+    if process.returncode == -15:
+        yield {
+            'type': 'stopped',
+            'message': '🛑 Scan stopped by user.'
+        }
+        return
+
+    if process.returncode != 0:
+        yield {
+            'type': 'error',
+            'message': f'nmap exited with code {process.returncode}'
+        }
+        return
+
+    yield {
+        'type': 'done'
+    }
 
 
 def get_http_ports_from_results(port_results) -> list[dict]:
-    """
-    Връща само HTTP портовете от вече записаните резултати.
-    Използва се за вземане на решение кои портове да сканира gobuster.
-    """
     return [
         {'port': p.port, 'protocol': p.protocol}
         for p in port_results
         if p.is_http
     ]
+
+
+def read_stderr(stderr_pipe):
+    for line in iter(stderr_pipe.readline, ''):
+        yield {
+            'type': 'log',
+            'message': line.strip()
+        }
