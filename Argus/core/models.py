@@ -7,16 +7,11 @@ class ScanSession(models.Model):
     STATUS_CHOICES = [
         ('pending', 'pending'),
         ('running', 'running'),
+        ('stopping', 'stopping'),
+        ('stopped', 'stopped'),
         ('completed', 'completed'),
         ('failed', 'failed'),
     ]
-    # status:
-    # - pending
-    # - running
-    # - stopping
-    # - stopped
-    # - completed
-    # - failed
 
     target = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')

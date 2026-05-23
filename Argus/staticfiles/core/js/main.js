@@ -85,6 +85,9 @@ function handleMessage(msg) {
     if (status === 'stopped') {
         document.getElementById('startBtn').disabled = false;
         document.getElementById('startBtn').textContent = '▶ Start scan';
+         if (ws) {
+        ws.close();
+    }
     }
     if (status === 'done' || status === 'completed') cssClass = 'log-done';
     if (status === 'skipped') cssClass = 'log-skip';

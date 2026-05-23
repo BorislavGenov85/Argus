@@ -1,6 +1,5 @@
 from celery import shared_task
 from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
 from django.utils import timezone
 
 from core.models import ScanSession, PortResult, DirectoryResult, DNSResult
@@ -260,18 +259,7 @@ def run_full_scan(self, session_id: int):
     # ─────────────────────────────────────────────────────────────
 
     if should_stop(session.id):
-        stop_scan(session, "gobuster")
-        return
-
-    if should_stop(session.id):
-        session.status = 'stopped'
-        session.save()
-
-        send_ws_update(session_id, {
-            'stage': 'all',
-            'status': 'stopped',
-            'message': '🛑 Scan stopped by user.',
-        })
+        stop_scan(session, "dns")
         return
 
     if session.dns_wordlist:
@@ -284,24 +272,17 @@ def run_full_scan(self, session_id: int):
 
         try:
             for result in run_dns_enumeration(
+                    session.id,
                     session.target,
                     session.dns_wordlist
             ):
-                if should_stop(session.id):
-                    session.status = 'stopped'
-                    session.save()
 
-                    send_ws_update(session_id, {
-                        'stage': 'dns',
-                        'status': 'stopped',
-                        'message': '🛑 DNS enumeration stopped.',
-                    })
-                    return
-
+                # STOP CHECK
                 if should_stop(session.id):
                     stop_scan(session, "dns")
                     return
 
+                # DNS RESULT
                 if result['type'] == 'dns':
 
                     dns_data = result['data']
@@ -317,6 +298,7 @@ def run_full_scan(self, session_id: int):
                         **dns_data,
                     })
 
+                # ERROR
                 elif result['type'] == 'error':
 
                     send_ws_update(session_id, {
@@ -343,17 +325,9 @@ def run_full_scan(self, session_id: int):
             'message': '⏭️ DNS enumeration skipped — no wordlist selected.',
         })
 
-    # ─────────────────────────────────────────────────────────────
-    # FINALIZATION
-    # ─────────────────────────────────────────────────────────────
+        # FINAL STATUS
+    session.refresh_from_db()
 
-    session.status = 'completed'
-    session.completed_at = timezone.now()
-    session.save()
-
-    send_ws_update(session_id, {
-        'stage': 'all',
-        'status': 'completed',
-        'message': '🎯 Scanning is complete!',
-    })
-    
+    if session.status != 'stopped':
+        session.status = 'completed'
+        session.save()

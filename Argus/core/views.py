@@ -100,9 +100,11 @@ def stop_scan(request, session_id):
 
     session = get_object_or_404(ScanSession, id=session_id)
 
+    # само маркираме stopping
     session.status = 'stopping'
     session.save()
 
+    # kill external tools only
     try:
         if session.nmap_pid:
             os.killpg(os.getpgid(session.nmap_pid), signal.SIGTERM)
@@ -121,16 +123,4 @@ def stop_scan(request, session_id):
     except ProcessLookupError:
         pass
 
-    if session.task_id:
-        current_app.control.revoke(
-            session.task_id,
-            terminate=True,
-            signal='SIGTERM'
-        )
-
-    session.status = 'stopped'
-    session.save()
-
-    return JsonResponse({
-        'status': 'stopped'
-    })
+    return JsonResponse({'status': 'stopped'})

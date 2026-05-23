@@ -1,27 +1,40 @@
 import dns.resolver
 import dns.exception
+import dns.resolver
+import dns.exception
+
+from core.models import ScanSession
 from typing import Generator
 
 
-# DNS записи, които търсим за основния домейн
 MAIN_RECORD_TYPES = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA']
 
 
-def run_dns_enumeration(target: str, wordlist: str) -> Generator[dict, None, None]:
-    """
-    DNS енумерация в два етапа:
-    1. Основни DNS записи за домейна
-    2. Brute force на субдомейни от wordlist
+def should_stop(session_id):
+    try:
+        session = ScanSession.objects.get(id=session_id)
+        print(
+            f"[STOP CHECK] session={session_id} status={session.status}"
+        )
+        print("CHECK STATUS:", session.status)
+        return session.status == "stopping"
+    except ScanSession.DoesNotExist:
+        return True
 
-    Yields dict с:
-        type: 'dns' | 'error' | 'done'
-        data: DNS записа
-    """
-    # Етап 1: Основни записи
+
+def run_dns_enumeration(
+        session_id: int,
+        target: str,
+        wordlist: str
+) -> Generator[dict, None, None]:
+
     yield from _get_base_records(target)
 
-    # Етап 2: Субдомейни от wordlist
-    yield from _brute_force_subdomains(target, wordlist)
+    yield from _brute_force_subdomains(
+        session_id,
+        target,
+        wordlist
+    )
 
     yield {'type': 'done'}
 
@@ -52,8 +65,12 @@ def _get_base_records(target: str) -> Generator[dict, None, None]:
             continue
 
 
-def _brute_force_subdomains(target: str, wordlist_path: str) -> Generator[dict, None, None]:
-    """Brute force на субдомейни от wordlist файл."""
+def _brute_force_subdomains(
+        session_id: int,
+        target: str,
+        wordlist_path: str
+) -> Generator[dict, None, None]:
+
     resolver = dns.resolver.Resolver()
     resolver.timeout = 2
     resolver.lifetime = 2
@@ -61,6 +78,7 @@ def _brute_force_subdomains(target: str, wordlist_path: str) -> Generator[dict, 
     try:
         with open(wordlist_path, 'r', encoding='utf-8', errors='ignore') as f:
             subdomains = [line.strip() for line in f if line.strip()]
+
     except FileNotFoundError:
         yield {
             'type': 'error',
@@ -84,9 +102,15 @@ def _brute_force_subdomains(target: str, wordlist_path: str) -> Generator[dict, 
                     }
                 }
 
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
+        except (
+                dns.resolver.NoAnswer,
+                dns.resolver.NXDOMAIN,
+                dns.resolver.NoNameservers
+        ):
             continue
+
         except dns.exception.Timeout:
             continue
+
         except Exception:
             continue
