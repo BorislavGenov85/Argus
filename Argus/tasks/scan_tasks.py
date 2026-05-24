@@ -50,7 +50,7 @@ def should_stop(session_id):
         return True
 
 
-def stop_scan(session, stage="unknown"):
+def terminate_scan_processes(session, stage):
     """
     Gracefully stop scan execution.
     """
@@ -115,10 +115,7 @@ def run_full_scan(self, session_id: int):
         for result in run_nmap_scan(session.id, session.target, session.nmap_flags):
 
             if should_stop(session.id):
-                stop_scan(session, "nmap")
-
-                session.status = 'stopped'
-                session.save()
+                terminate_scan_processes(session, "nmap")
 
                 send_ws_update(session.id, {
                     'stage': 'nmap',
@@ -169,7 +166,7 @@ def run_full_scan(self, session_id: int):
     # ─────────────────────────────────────────────────────────────
 
     if should_stop(session.id):
-        stop_scan(session, "nmap")
+        terminate_scan_processes(session, "nmap")
         return
 
     http_ports = get_http_ports_from_results(
@@ -188,7 +185,7 @@ def run_full_scan(self, session_id: int):
             for port_info in http_ports:
 
                 if should_stop(session.id):
-                    stop_scan(session, "gobuster")
+                    terminate_scan_processes(session, "gobuster")
                     return
 
                 port_num = port_info['port']
@@ -202,7 +199,7 @@ def run_full_scan(self, session_id: int):
                 ):
 
                     if should_stop(session.id):
-                        stop_scan(session, "gobuster")
+                        terminate_scan_processes(session, "gobuster")
                         return
 
                     if result['type'] == 'directory':
@@ -259,7 +256,7 @@ def run_full_scan(self, session_id: int):
     # ─────────────────────────────────────────────────────────────
 
     if should_stop(session.id):
-        stop_scan(session, "dns")
+        terminate_scan_processes(session, "dns")
         return
 
     if session.dns_wordlist:
@@ -279,7 +276,7 @@ def run_full_scan(self, session_id: int):
 
                 # STOP CHECK
                 if should_stop(session.id):
-                    stop_scan(session, "dns")
+                    terminate_scan_processes(session, "dns")
                     return
 
                 # DNS RESULT

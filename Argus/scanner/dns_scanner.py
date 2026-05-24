@@ -13,10 +13,7 @@ MAIN_RECORD_TYPES = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA']
 def should_stop(session_id):
     try:
         session = ScanSession.objects.get(id=session_id)
-        print(
-            f"[STOP CHECK] session={session_id} status={session.status}"
-        )
-        print("CHECK STATUS:", session.status)
+
         return session.status == "stopping"
     except ScanSession.DoesNotExist:
         return True
@@ -72,8 +69,8 @@ def _brute_force_subdomains(
 ) -> Generator[dict, None, None]:
 
     resolver = dns.resolver.Resolver()
-    resolver.timeout = 2
-    resolver.lifetime = 2
+    resolver.timeout = 1
+    resolver.lifetime = 1
 
     try:
         with open(wordlist_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -87,6 +84,15 @@ def _brute_force_subdomains(
         return
 
     for sub in subdomains:
+        try:
+            session = ScanSession.objects.get(id=session_id)
+
+            if session.status in ['stopping', 'stopped']:
+                print(f"[DNS STOP] stopping session {session_id}")
+                return
+
+        except ScanSession.DoesNotExist:
+            return
         full_domain = f'{sub}.{target}'
 
         try:

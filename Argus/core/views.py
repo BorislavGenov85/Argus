@@ -100,7 +100,6 @@ def stop_scan(request, session_id):
 
     session = get_object_or_404(ScanSession, id=session_id)
 
-    # само маркираме stopping
     session.status = 'stopping'
     session.save()
 
