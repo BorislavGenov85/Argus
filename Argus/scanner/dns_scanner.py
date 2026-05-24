@@ -1,3 +1,4 @@
+import time
 import dns.resolver
 import dns.exception
 import dns.resolver
@@ -62,15 +63,14 @@ def _get_base_records(target: str) -> Generator[dict, None, None]:
             continue
 
 
-def _brute_force_subdomains(
-        session_id: int,
-        target: str,
-        wordlist_path: str
-) -> Generator[dict, None, None]:
+def _brute_force_subdomains( session_id: int, target: str, wordlist_path: str) -> Generator[dict, None, None]:
 
     resolver = dns.resolver.Resolver()
     resolver.timeout = 1
     resolver.lifetime = 1
+
+    start_time = time.time()
+    max_scan_time = 60
 
     try:
         with open(wordlist_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -84,6 +84,16 @@ def _brute_force_subdomains(
         return
 
     for sub in subdomains:
+
+        if time.time() - start_time > max_scan_time:
+            yield {
+                'type': 'status',
+                'stage': 'dns',
+                'status': 'failed',
+                'message': f'DNS scan timeout after {max_scan_time} seconds.'
+            }
+            return
+
         try:
             session = ScanSession.objects.get(id=session_id)
 

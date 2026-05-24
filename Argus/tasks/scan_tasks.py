@@ -279,6 +279,15 @@ def run_full_scan(self, session_id: int):
                     terminate_scan_processes(session, "dns")
                     return
 
+                if result['type'] == 'status':
+
+                    send_ws_update(session_id, result)
+
+                    if result['status'] == 'failed':
+                        session.status = 'failed'
+                        session.save()
+                        return
+
                 # DNS RESULT
                 if result['type'] == 'dns':
 
