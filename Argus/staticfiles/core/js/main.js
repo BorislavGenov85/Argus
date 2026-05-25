@@ -4,7 +4,15 @@ let currentSessionId = null;
 const portCount = {
     ports: 0,
     dirs: 0,
+    vhosts: 0,
     dns: 0
+};
+
+const STAGE_RESULT_HANDLERS = {
+    nmap: addPortRow,
+    gobuster: addDirRow,
+    vhost: addVhostRow,
+    dns: addDnsRow,
 };
 
 function getCookie(name) {
@@ -33,6 +41,7 @@ async function startScan() {
     formData.append('target', target);
     formData.append('nmap_flags', document.getElementById('nmap_flags').value);
     formData.append('dir_wordlist', document.getElementById('dir_wordlist').value);
+    formData.append('vhost_wordlist', document.getElementById('vhost_wordlist').value);
     formData.append('dns_wordlist', document.getElementById('dns_wordlist').value);
     formData.append('csrfmiddlewaretoken', getCookie('csrftoken'));
 
@@ -162,17 +171,11 @@ function handleMessage(msg) {
 
     // RESULTS
 
-    if (stage === 'nmap' && status === 'result') {
-
-        addPortRow(msg);
-
-    } else if (stage === 'gobuster' && status === 'result') {
-
-        addDirRow(msg);
-
-    } else if (stage === 'dns' && status === 'result') {
-
-        addDnsRow(msg);
+    if (
+        status === 'result' &&
+        STAGE_RESULT_HANDLERS[stage]
+    ) {
+        STAGE_RESULT_HANDLERS[stage](msg);
     }
 }
 
@@ -274,6 +277,33 @@ function addDirRow(msg) {
     document.getElementById('cnt-dirs').textContent = portCount.dirs;
 }
 
+function addVhostRow(msg) {
+
+    const tbody = document.getElementById('vhosts-body');
+
+    if (portCount.vhosts === 0) {
+        tbody.innerHTML = '';
+    }
+
+    const tr = document.createElement('tr');
+
+    tr.innerHTML = `
+        <td style="color:var(--accent2)">${msg.hostname}</td>
+        <td>${msg.port}</td>
+        <td>${msg.status_code}</td>
+        <td>${msg.content_length}</td>
+        <td>${msg.words}</td>
+        <td>${msg.lines}</td>
+    `;
+
+    tbody.appendChild(tr);
+
+    portCount.vhosts++;
+
+    document.getElementById('cnt-vhosts').textContent =
+        portCount.vhosts;
+}
+
 function addDnsRow(msg) {
 
     const tbody = document.getElementById('dns-body');
@@ -330,18 +360,23 @@ function resetUI() {
     document.getElementById('dirs-body').innerHTML =
         '<tr><td colspan="3" class="empty-state">Please wait...</td></tr>';
 
+    document.getElementById('vhosts-body').innerHTML =
+    '<tr><td colspan="6" class="empty-state">Please wait...</td></tr>';
+
     document.getElementById('dns-body').innerHTML =
         '<tr><td colspan="3" class="empty-state">Please wait...</td></tr>';
 
     portCount.ports = 0;
     portCount.dirs = 0;
+    portCount.vhosts = 0;
     portCount.dns = 0;
 
     document.getElementById('cnt-ports').textContent = '0';
     document.getElementById('cnt-dirs').textContent = '0';
+    document.getElementById('cnt-vhosts').textContent = '0';
     document.getElementById('cnt-dns').textContent = '0';
 
-    ['nmap', 'gobuster', 'dns'].forEach(s => {
+    ['nmap', 'gobuster', 'vhost', 'dns'].forEach(s => {
         document.getElementById(`stage-${s}`).className = 'stage';
     });
 }

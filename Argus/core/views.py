@@ -35,6 +35,7 @@ def start_scan(request):
     target = request.POST.get('target', '').strip()
     nmap_flags = request.POST.get('nmap_flags', '-T4 --open').strip()
     dir_wordlist = request.POST.get('dir_wordlist', '').strip()
+    vhost_wordlist = request.POST.get('vhost_wordlist', '').strip()
     dns_wordlist = request.POST.get('dns_wordlist', '').strip()
 
     if not target:
@@ -44,6 +45,7 @@ def start_scan(request):
         target=target,
         nmap_flags=nmap_flags,
         dir_wordlist=dir_wordlist,
+        vhost_wordlist=vhost_wordlist,
         dns_wordlist=dns_wordlist,
     )
 
@@ -113,6 +115,12 @@ def stop_scan(request, session_id):
     try:
         if session.gobuster_pid:
             os.killpg(os.getpgid(session.gobuster_pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    try:
+        if session.vhost_pid:
+            os.killpg(os.getpgid(session.vhost_pid), signal.SIGTERM)
     except ProcessLookupError:
         pass
 

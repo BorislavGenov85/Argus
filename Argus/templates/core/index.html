@@ -45,6 +45,11 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="vhost_wordlist">VHOST WORDLIST</label>
+                    <input type="text" id="vhost_wordlist" value="{{ default_vhost_wordlist }}">
+                </div>
+
+                <div class="form-group">
                     <label>Wordlist — DNS subdomains</label>
                     <input type="text" id="dns_wordlist" value="{{ default_dns_wordlist }}">
                     <div class="hint">Leave blank to skip</div>
@@ -94,6 +99,7 @@
                 <div class="stages">
                     <div class="stage" id="stage-nmap">nmap</div>
                     <div class="stage" id="stage-gobuster">gobuster</div>
+                    <div class="stage" id="stage-vhost">vhost</div>
                     <div class="stage" id="stage-dns">dns</div>
                 </div>
 
@@ -104,13 +110,20 @@
                 <div style="margin-top:1.5rem">
                     <div class="tabs">
                         <button class="tab active" onclick="showTab('ports', this)">
-                            Ports <span class="tab-count" id="cnt-ports">0</span>
+                            Ports
+                            <span class="tab-count" id="cnt-ports">0</span>
                         </button>
                         <button class="tab" onclick="showTab('dirs', this)">
-                            Directories <span class="tab-count" id="cnt-dirs">0</span>
+                            Directories
+                            <span class="tab-count" id="cnt-dirs">0</span>
+                        </button>
+                        <button class="tab" onclick="showTab('vhosts', this)">
+                            VHOSTS
+                            <span class="tab-count" id="cnt-vhosts">0</span>
                         </button>
                         <button class="tab" onclick="showTab('dns', this)">
-                            DNS <span class="tab-count" id="cnt-dns">0</span>
+                            DNS
+                            <span class="tab-count" id="cnt-dns">0</span>
                         </button>
                     </div>
 
@@ -146,6 +159,29 @@
                             <tbody id="dirs-body">
                             <tr>
                                 <td colspan="3" class="empty-state">No results</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- fuzzing -->
+                    <div class="tab-panel" id="tab-vhosts">
+                        <table class="result-table">
+                            <thead>
+                            <tr>
+                                <th>Hostname</th>
+                                <th>Port</th>
+                                <th>Status</th>
+                                <th>Size</th>
+                                <th>Words</th>
+                                <th>Lines</th>
+                            </tr>
+                            </thead>
+                            <tbody id="vhosts-body">
+                            <tr>
+                                <td colspan="6" class="empty-state">
+                                    No results
+                                </td>
                             </tr>
                             </tbody>
                         </table>

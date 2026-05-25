@@ -6,6 +6,8 @@ from core.models import ScanSession, PortResult, DirectoryResult, DNSResult
 from scanner.nmap_scanner import run_nmap_scan, get_http_ports_from_results
 from scanner.gobuster_scanner import run_gobuster_dir
 from scanner.dns_scanner import run_dns_enumeration
+from core.models import VHostResult
+from scanner.vhost_scanner import run_vhost_scan
 
 
 def send_ws_update(session_id: int, message: dict):
@@ -247,6 +249,86 @@ def run_full_scan(self, session_id: int):
 
         send_ws_update(session_id, {
             'stage': 'gobuster',
+            'status': 'skipped',
+            'message': '⏭️ No HTTP ports found.',
+        })
+
+    # ─────────────────────────────────────────────────────────────
+    # VHOST ENUMERATION
+    # ─────────────────────────────────────────────────────────────
+
+    if should_stop(session.id):
+        terminate_scan_processes(session, "vhost")
+        return
+
+    if http_ports and session.dir_wordlist:
+
+        send_ws_update(session_id, {
+            'stage': 'vhost',
+            'status': 'started',
+            'message': f'🌐 Starting VHOST enumeration...',
+        })
+
+        try:
+            for port_info in http_ports:
+
+                if should_stop(session.id):
+                    terminate_scan_processes(session, "vhost")
+                    return
+
+                port_num = port_info['port']
+
+                use_https = port_num in {443, 8443}
+
+                for result in run_vhost_scan(
+                        session.id,
+                        session.target,
+                        port_num,
+                        session.dir_wordlist,
+                        use_https
+                ):
+
+                    if should_stop(session.id):
+                        terminate_scan_processes(session, "vhost")
+                        return
+
+                    if result['type'] == 'vhost':
+
+                        vhost_data = result['data']
+
+                        VHostResult.objects.create(
+                            session=session,
+                            **vhost_data
+                        )
+
+                        send_ws_update(session_id, {
+                            'stage': 'vhost',
+                            'status': 'result',
+                            **vhost_data,
+                        })
+
+                    elif result['type'] == 'error':
+
+                        send_ws_update(session_id, {
+                            'stage': 'vhost',
+                            'status': 'error',
+                            'message': result['message'],
+                        })
+
+        except Exception as e:
+            fail_scan(session, 'vhost', e)
+            return
+
+        send_ws_update(session_id, {
+            'stage': 'vhost',
+            'status': 'done',
+            'message': '✅ VHOST enumeration completed.',
+        })
+
+    else:
+
+        send_ws_update(session_id, {
+            'stage': 'vhost',
             'status': 'skipped',
             'message': '⏭️ No HTTP ports found.',
         })

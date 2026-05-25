@@ -19,6 +19,7 @@ class ScanSession(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     nmap_pid = models.IntegerField(null=True, blank=True)
     gobuster_pid = models.IntegerField(null=True, blank=True)
+    vhost_pid = models.IntegerField(null=True, blank=True)
     dns_pid = models.IntegerField(null=True, blank=True)
 
     # Опции за сканиране
@@ -28,6 +29,9 @@ class ScanSession(models.Model):
         help_text='Additional nmap flags'
     )
     dir_wordlist = models.CharField(max_length=500, blank=True)
+    vhost_wordlist = models.CharField(max_length=500, blank=True,
+                                      default='/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt'
+                                      )
     dns_wordlist = models.CharField(max_length=500, blank=True)
 
     # Celery task ID — за проследяване
@@ -79,6 +83,35 @@ class DirectoryResult(models.Model):
 
     def __str__(self):
         return f'[{self.status_code}] {self.url}'
+
+
+class VHostResult(models.Model):
+
+    session = models.ForeignKey(
+        ScanSession,
+        on_delete=models.CASCADE,
+        related_name='vhosts'
+    )
+
+    hostname = models.CharField(max_length=500)
+
+    port = models.IntegerField(default=80)
+
+    status_code = models.IntegerField(default=0)
+
+    content_length = models.IntegerField(default=0)
+
+    words = models.IntegerField(default=0)
+
+    lines = models.IntegerField(default=0)
+
+    title = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ['hostname']
+
+    def __str__(self):
+        return f'{self.hostname}:{self.port}'
 
 
 class DNSResult(models.Model):
