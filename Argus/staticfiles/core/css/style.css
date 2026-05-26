@@ -1,6 +1,7 @@
 :root {
     --bg: #0a0c0f;
     --surface: #111419;
+    --surface-2: #1a1f2a;
     --border: #1e2330;
     --accent: #00ff88;
     --accent2: #0af;
@@ -468,4 +469,94 @@ input[type="text"]:focus {
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: .05em;
+}
+
+/* ── Domain Confirmation Modal ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+}
+
+.modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 440px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent);
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 60px;
+}
+
+.modal-add-domain {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+.modal-add-domain input {
+    flex: 1;
+    font-size: 0.85rem;
+}
+
+.modal-add-domain .btn {
+    flex-shrink: 0;
+    padding: 0.4rem 0.8rem;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.modal-footer {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.domain-check-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text);
+    transition: background 0.15s;
+}
+
+.domain-check-item:hover {
+    background: var(--surface-2);
+}
+
+.domain-check-item input[type=checkbox] {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
 }

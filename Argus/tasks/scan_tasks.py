@@ -1,99 +1,154 @@
+"""
+Celery tasks — two-phase scan architecture.
+
+Phase 1: run_discovery
+  Runs nmap + gobuster. If domains are discovered, pauses the scan
+  (status=awaiting_domains) and sends a WS event. Celery worker is freed.
+
+Phase 2: run_expansion
+  Triggered by POST /scan/{id}/continue/ after user confirms domains.
+  Runs vhost + dns on the confirmed domains.
+
+No Redis polling. No blocked workers. Clean handoff via HTTP endpoint.
+"""
+
+from __future__ import annotations
+
 from celery import shared_task
 from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from django.utils import timezone
 
-from core.models import ScanSession, PortResult, DirectoryResult, DNSResult
-from scanner.nmap_scanner import run_nmap_scan, get_http_ports_from_results
-from scanner.gobuster_scanner import run_gobuster_dir
-from scanner.dns_scanner import run_dns_enumeration
-from core.models import VHostResult
-from scanner.vhost_scanner import run_vhost_scan
+from core.models import (
+    ScanSession, PortResult, DirectoryResult, VHostResult, DNSResult,
+)
+from pipeline.context import ReconContext, HttpService
+from pipeline.events import EventBus, EventType, ScanEvent
+from pipeline.process_manager import ProcessManager
+from pipeline.orchestrator import Orchestrator
+from pipeline.finding import FindingType
+from scanner import ALL_MODULES
 
 
-def send_ws_update(session_id: int, message: dict):
-    """Send update to WebSocket client."""
-    import asyncio
-
+def _make_dispatcher(session_id: int):
+    """Create a WS dispatch function bound to a session."""
     channel_layer = get_channel_layer()
 
-    async def _send():
-        await channel_layer.group_send(
+    def dispatch(event: ScanEvent) -> None:
+        async_to_sync(channel_layer.group_send)(
             f'scan_{session_id}',
             {
                 'type': 'scan_update',
-                'message': message,
-            }
+                'message': event.to_dict(),
+            },
         )
 
-    # async_to_sync deadlock-ва при -P solo (loop вече върви в thread-а).
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            future = asyncio.run_coroutine_threadsafe(_send(), loop)
-            future.result(timeout=5)
-        else:
-            loop.run_until_complete(_send())
-    except Exception:
-        asyncio.run(_send())
+    return dispatch
 
 
-def should_stop(session_id):
-    """
-    Check whether the scan should stop.
-    Returns True if:
-    - session status == stopping
-    - session no longer exists
-    """
+def _check_stop(session_id: int) -> bool:
+    """Check if the session has been stopped externally."""
     try:
         session = ScanSession.objects.get(id=session_id)
-        return session.status == "stopping"
+        return session.status == 'stopping'
     except ScanSession.DoesNotExist:
         return True
 
 
-def terminate_scan_processes(session, stage):
-    """
-    Gracefully stop scan execution.
-    """
-    session.status = "stopped"
+def _build_context(session: ScanSession, pm: ProcessManager) -> ReconContext:
+    """Build a ReconContext from a ScanSession model."""
+    return ReconContext(
+        session_id=session.id,
+        target=session.target,
+        options={
+            'nmap_flags': session.nmap_flags,
+            'dir_wordlist': session.dir_wordlist,
+            'vhost_wordlist': session.vhost_wordlist,
+            'dns_wordlist': session.dns_wordlist,
+            'process_manager': pm,
+        },
+        stop_checker=lambda: _check_stop(session.id),
+    )
+
+
+def _persist_findings(session: ScanSession, context: ReconContext) -> None:
+    """Write pipeline findings to Django models for persistence."""
+    for finding in context.findings:
+        d = finding.data
+
+        if finding.type == FindingType.PORT:
+            PortResult.objects.get_or_create(
+                session=session,
+                port=d['port'],
+                protocol=d.get('protocol', 'tcp'),
+                defaults={
+                    'state': d.get('state', 'open'),
+                    'service': d.get('service', ''),
+                    'product': d.get('product', ''),
+                    'version': d.get('version', ''),
+                    'extra_info': d.get('extra_info', ''),
+                    'is_http': d.get('is_http', False),
+                },
+            )
+
+        elif finding.type == FindingType.DIRECTORY:
+            DirectoryResult.objects.get_or_create(
+                session=session,
+                url=d['url'],
+                defaults={
+                    'status_code': d.get('status_code', 0),
+                    'size': d.get('size', 0),
+                    'port': d.get('port', 80),
+                },
+            )
+
+        elif finding.type == FindingType.VHOST:
+            VHostResult.objects.get_or_create(
+                session=session,
+                hostname=d['hostname'],
+                port=d.get('port', 80),
+                defaults={
+                    'status_code': d.get('status_code', 0),
+                    'content_length': d.get('content_length', 0),
+                    'words': d.get('words', 0),
+                    'lines': d.get('lines', 0),
+                },
+            )
+
+        elif finding.type == FindingType.DNS_RECORD:
+            DNSResult.objects.get_or_create(
+                session=session,
+                subdomain=d['subdomain'],
+                record_type=d['record_type'],
+                value=d['value'],
+            )
+
+
+def _finalize(session, status, pm, bus, message=''):
+    """Set final session state and emit closing event."""
+    session.refresh_from_db()
+    session.status = status
     session.completed_at = timezone.now()
     session.save()
+    pm.cleanup()
 
-    send_ws_update(session.id, {
-        "stage": stage,
-        "status": "stopped",
-        "message": "🛑 Scan stopped by user.",
-    })
-
-
-def fail_scan(session, stage, error_message):
-    """
-    Centralized error handling.
-    """
-    session.status = "failed"
-    session.error_message = str(error_message)
-    session.completed_at = timezone.now()
-    session.save()
-
-    send_ws_update(session.id, {
-        "stage": stage,
-        "status": "error",
-        "message": str(error_message),
-    })
+    event_map = {
+        'completed': EventType.SCAN_COMPLETED,
+        'stopped': EventType.SCAN_STOPPED,
+        'failed': EventType.SCAN_FAILED,
+    }
+    bus.emit(event_map.get(status, EventType.SCAN_FAILED), message=message or f'Scan {status}.')
 
 
 @shared_task(bind=True)
-def run_full_scan(self, session_id: int):
+def run_discovery(self, session_id: int):
     """
-    Main Celery task.
+    Phase 1: nmap + gobuster.
 
-    Flow:
-    1. nmap scan
-    2. gobuster directory enumeration
-    3. DNS enumeration
+    After completion:
+    - If domains discovered → status=awaiting_domains, WS event, RETURN
+    - If no domains and no expansion needed → status=completed
     """
-
     try:
         session = ScanSession.objects.get(id=session_id)
     except ScanSession.DoesNotExist:
@@ -103,319 +158,111 @@ def run_full_scan(self, session_id: int):
     session.task_id = self.request.id
     session.save()
 
-    # ─────────────────────────────────────────────────────────────
-    # NMAP
-    # ─────────────────────────────────────────────────────────────
+    pm = ProcessManager()
+    context = _build_context(session, pm)
+    bus = EventBus(_make_dispatcher(session_id))
 
-    send_ws_update(session_id, {
-        'stage': 'nmap',
-        'status': 'started',
-        'message': f'🔍 Starting nmap scan for {session.target}...',
-    })
+    bus.emit(EventType.SCAN_STARTED, message=f'Starting recon for {session.target}')
+
+    orchestrator = Orchestrator(ALL_MODULES, context, bus, pm)
 
     try:
-        for result in run_nmap_scan(session.id, session.target, session.nmap_flags):
+        completed = orchestrator.run_phase('discovery')
+        _persist_findings(session, context)
 
-            if should_stop(session.id):
-                terminate_scan_processes(session, "nmap")
+        if not completed:
+            _finalize(session, 'stopped', pm, bus)
+            return
 
-                send_ws_update(session.id, {
-                    'stage': 'nmap',
-                    'status': 'stopped',
-                    'message': '🛑 Scan stopped by user.'
-                })
+        # Check if expansion is needed
+        needs_expansion = session.vhost_wordlist or session.dns_wordlist
+        discovered = context.unique_discovered_domains
 
-                return
+        if needs_expansion and context.has_http:
+            # Pause — send domains to frontend, free the Celery worker
+            session.refresh_from_db()
+            session.discovered_domains = discovered
+            session.status = 'awaiting_domains'
+            session.save()
 
-            if result['type'] == 'log':
-                send_ws_update(session.id, {
-                    'type': 'log',
-                    'message': result['message']
-                })
-                continue
+            bus.emit(
+                EventType.DOMAINS_AWAITING,
+                message='Domains detected — confirm to continue.' if discovered
+                        else 'No domains detected. Add manually or skip.',
+                data={'domains': discovered},
+            )
+            pm.cleanup()
+            return
 
-            if result['type'] == 'port':
-                port_data = result['data']
-
-                PortResult.objects.create(
-                    session=session,
-                    **port_data
-                )
-
-                send_ws_update(session_id, {
-                    'stage': 'nmap',
-                    'status': 'result',
-                    'port': port_data['port'],
-                    'protocol': port_data['protocol'],
-                    'service': port_data['service'],
-                    'product': port_data['product'],
-                    'version': port_data['version'],
-                    'is_http': port_data['is_http'],
-                })
+        # No expansion needed — done
+        _finalize(session, 'completed', pm, bus, 'Scan completed.')
 
     except Exception as e:
-        fail_scan(session, 'nmap', e)
+        session.refresh_from_db()
+        session.error_message = str(e)
+        session.save()
+        _finalize(session, 'failed', pm, bus, str(e))
+
+
+@shared_task(bind=True)
+def run_expansion(self, session_id: int):
+    """
+    Phase 2: vhost + dns on confirmed domains.
+
+    Triggered by POST /scan/{id}/continue/.
+    """
+    try:
+        session = ScanSession.objects.get(id=session_id)
+    except ScanSession.DoesNotExist:
         return
 
-    send_ws_update(session_id, {
-        'stage': 'nmap',
-        'status': 'done',
-        'message': '✅ nmap scan completed.',
-    })
-
-    # ─────────────────────────────────────────────────────────────
-    # GOBUSTER
-    # ─────────────────────────────────────────────────────────────
-
-    if should_stop(session.id):
-        terminate_scan_processes(session, "nmap")
+    if not session.confirmed_domains:
+        session.status = 'completed'
+        session.completed_at = timezone.now()
+        session.save()
         return
 
-    http_ports = get_http_ports_from_results(
-        session.ports.filter(is_http=True)
+    session.status = 'running'
+    session.task_id = self.request.id
+    session.save()
+
+    pm = ProcessManager()
+    context = _build_context(session, pm)
+
+    # Restore state from discovery phase
+    context.confirmed_domains = list(session.confirmed_domains)
+
+    for port_result in session.ports.filter(is_http=True):
+        context.add_http_service(HttpService(
+            port=port_result.port,
+            protocol=port_result.protocol,
+            is_https=(port_result.port in {443, 8443}),
+            product=port_result.product,
+        ))
+        context.open_ports.add(port_result.port)
+
+    # Mark discovery as done so expansion modules don't block on requires
+    context.completed_modules.add('nmap')
+    context.completed_modules.add('gobuster')
+
+    bus = EventBus(_make_dispatcher(session_id))
+    bus.emit(
+        EventType.DOMAINS_CONFIRMED,
+        message=f'Continuing with {len(context.confirmed_domains)} domain(s).',
+        data={'domains': context.confirmed_domains},
     )
 
-    if http_ports and session.dir_wordlist:
+    orchestrator = Orchestrator(ALL_MODULES, context, bus, pm)
 
-        send_ws_update(session_id, {
-            'stage': 'gobuster',
-            'status': 'started',
-            'message': f'📂 Starting directory enumeration for {len(http_ports)} HTTP port(s)...',
-        })
+    try:
+        completed = orchestrator.run_phase('expansion')
+        _persist_findings(session, context)
 
-        try:
-            for port_info in http_ports:
+        status = 'completed' if completed else 'stopped'
+        _finalize(session, status, pm, bus, f'Scan {status}.')
 
-                if should_stop(session.id):
-                    terminate_scan_processes(session, "gobuster")
-                    return
-
-                port_num = port_info['port']
-                use_https = port_num in {443, 8443}
-
-                for result in run_gobuster_dir(
-                        target=session.target,
-                        port=port_num,
-                        wordlist=session.dir_wordlist,
-                        use_https=use_https,
-                ):
-
-                    if should_stop(session.id):
-                        terminate_scan_processes(session, "gobuster")
-                        return
-
-                    if result['type'] == 'directory':
-
-                        dir_data = result['data']
-
-                        DirectoryResult.objects.create(
-                            session=session,
-                            **dir_data
-                        )
-
-                        send_ws_update(session_id, {
-                            'stage': 'gobuster',
-                            'status': 'result',
-                            **dir_data,
-                        })
-
-                    elif result['type'] == 'error':
-
-                        send_ws_update(session_id, {
-                            'stage': 'gobuster',
-                            'status': 'error',
-                            'message': result['message'],
-                        })
-
-        except Exception as e:
-            fail_scan(session, 'gobuster', e)
-            return
-
-        send_ws_update(session_id, {
-            'stage': 'gobuster',
-            'status': 'done',
-            'message': '✅ Directory enumeration completed.',
-        })
-
-    elif not session.dir_wordlist:
-
-        send_ws_update(session_id, {
-            'stage': 'gobuster',
-            'status': 'skipped',
-            'message': '⏭️ Directory enumeration skipped — no wordlist selected.',
-        })
-
-    else:
-
-        send_ws_update(session_id, {
-            'stage': 'gobuster',
-            'status': 'skipped',
-            'message': '⏭️ No HTTP ports found.',
-        })
-
-    # ─────────────────────────────────────────────────────────────
-    # VHOST ENUMERATION
-    # ─────────────────────────────────────────────────────────────
-
-    if should_stop(session.id):
-        terminate_scan_processes(session, "vhost")
-        return
-
-    if http_ports and session.dir_wordlist:
-
-        send_ws_update(session_id, {
-            'stage': 'vhost',
-            'status': 'started',
-            'message': f'🌐 Starting VHOST enumeration...',
-        })
-
-        try:
-            for port_info in http_ports:
-
-                if should_stop(session.id):
-                    terminate_scan_processes(session, "vhost")
-                    return
-
-                port_num = port_info['port']
-
-                use_https = port_num in {443, 8443}
-
-                for result in run_vhost_scan(
-                        session.id,
-                        session.target,
-                        port_num,
-                        session.dir_wordlist,
-                        use_https
-                ):
-
-                    if should_stop(session.id):
-                        terminate_scan_processes(session, "vhost")
-                        return
-
-                    if result['type'] == 'vhost':
-
-                        vhost_data = result['data']
-
-                        VHostResult.objects.create(
-                            session=session,
-                            **vhost_data
-                        )
-
-                        send_ws_update(session_id, {
-                            'stage': 'vhost',
-                            'status': 'result',
-                            **vhost_data,
-                        })
-
-                    elif result['type'] == 'error':
-
-                        send_ws_update(session_id, {
-                            'stage': 'vhost',
-                            'status': 'error',
-                            'message': result['message'],
-                        })
-
-        except Exception as e:
-            fail_scan(session, 'vhost', e)
-            return
-
-        send_ws_update(session_id, {
-            'stage': 'vhost',
-            'status': 'done',
-            'message': '✅ VHOST enumeration completed.',
-        })
-
-    else:
-
-        send_ws_update(session_id, {
-            'stage': 'vhost',
-            'status': 'skipped',
-            'message': '⏭️ No HTTP ports found.',
-        })
-
-    # ─────────────────────────────────────────────────────────────
-    # DNS ENUMERATION
-    # ─────────────────────────────────────────────────────────────
-
-    if should_stop(session.id):
-        terminate_scan_processes(session, "dns")
-        return
-
-    if session.dns_wordlist:
-
-        send_ws_update(session_id, {
-            'stage': 'dns',
-            'status': 'started',
-            'message': f'🌐 Starting DNS enumeration for {session.target}...',
-        })
-
-        try:
-            for result in run_dns_enumeration(
-                    session.id,
-                    session.target,
-                    session.dns_wordlist
-            ):
-
-                # STOP CHECK
-                if should_stop(session.id):
-                    terminate_scan_processes(session, "dns")
-                    return
-
-                if result['type'] == 'status':
-
-                    send_ws_update(session_id, result)
-
-                    if result['status'] == 'failed':
-                        session.status = 'failed'
-                        session.save()
-                        return
-
-                # DNS RESULT
-                if result['type'] == 'dns':
-
-                    dns_data = result['data']
-
-                    DNSResult.objects.create(
-                        session=session,
-                        **dns_data
-                    )
-
-                    send_ws_update(session_id, {
-                        'stage': 'dns',
-                        'status': 'result',
-                        **dns_data,
-                    })
-
-                # ERROR
-                elif result['type'] == 'error':
-
-                    send_ws_update(session_id, {
-                        'stage': 'dns',
-                        'status': 'error',
-                        'message': result['message'],
-                    })
-
-        except Exception as e:
-            fail_scan(session, 'dns', e)
-            return
-
-        send_ws_update(session_id, {
-            'stage': 'dns',
-            'status': 'done',
-            'message': '✅ DNS enumeration completed.',
-        })
-
-    else:
-
-        send_ws_update(session_id, {
-            'stage': 'dns',
-            'status': 'skipped',
-            'message': '⏭️ DNS enumeration skipped — no wordlist selected.',
-        })
-
-        # FINAL STATUS
-    session.refresh_from_db()
-
-    if session.status != 'stopped':
-        session.status = 'completed'
+    except Exception as e:
+        session.refresh_from_db()
+        session.error_message = str(e)
         session.save()
+        _finalize(session, 'failed', pm, bus, str(e))

@@ -14,17 +14,21 @@ def run_vhost_scan(
         target: str,
         port: int,
         wordlist: str,
-        use_https: bool = False
+        use_https: bool = False,
+        fuzz_domain: str = None,       # домейнът за Host: FUZZ.<domain>
 ) -> Generator[dict, None, None]:
 
     protocol = 'https' if use_https else 'http'
 
     url = f'{protocol}://{target}:{port}'
 
+    # Ако е подаден fuzz_domain — fuzz-ваме него, иначе target-а
+    domain = fuzz_domain or target
+
     cmd = [
         'ffuf',
         '-u', url,
-        '-H', f'Host: FUZZ.{target}',
+        '-H', f'Host: FUZZ.{domain}',
         '-w', wordlist,
         '-mc', '200,204,301,302,307,401,403',
         '-ac',

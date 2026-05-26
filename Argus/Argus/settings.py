@@ -46,10 +46,8 @@ TEMPLATES = [
     },
 ]
 
-# ASGI за WebSockets
 ASGI_APPLICATION = 'Argus.asgi.application'
 
-# База данни — SQLite, лесно се чисти
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -57,7 +55,7 @@ DATABASES = {
     }
 }
 
-# Redis — за Celery и WebSocket channels
+# Redis
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 
 # Celery
@@ -71,18 +69,15 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-             "hosts": [("127.0.0.1", 6379)],
+            'hosts': [('127.0.0.1', 6379)],
         },
     },
 }
 
 STATIC_URL = 'static/'
-STATICFILES_DIRS = (
-    BASE_DIR / 'staticfiles',
-)
+STATICFILES_DIRS = (BASE_DIR / 'staticfiles',)
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Wordlists по подразбиране
-DEFAULT_WORDLIST_DIR = '/usr/share/wordlists'
+# Wordlists
 DEFAULT_DIR_WORDLIST = '/usr/share/wordlists/dirb/common.txt'
 DEFAULT_DNS_WORDLIST = '/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt'

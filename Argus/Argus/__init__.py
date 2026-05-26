@@ -1,2 +1,3 @@
-from .celery import app as celery_app
+from Argus.celery import app as celery_app
+
 __all__ = ('celery_app',)

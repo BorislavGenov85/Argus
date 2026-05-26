@@ -1,10 +1,10 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="bg">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReconKit — Pentesting Recon Tool</title>
+    <title>Argus — Recon Pipeline</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@400;600&display=swap"
           rel="stylesheet">
@@ -14,13 +14,13 @@
 
 <header>
     <div class="logo">Argus</div>
-    <div class="badge">v1.0</div>
+    <div class="badge">v2.0</div>
     <div class="disclaimer">⚠ For use only on systems with explicit permission</div>
 </header>
 
 <div class="container">
 
-    <!-- ── Лява колона: форма + история ── -->
+    <!-- ── Left column: form + history ── -->
     <div>
         <div class="panel" style="margin-bottom:1.5rem">
             <div class="panel-header">▶ New scan</div>
@@ -28,14 +28,13 @@
 
                 <div class="form-group">
                     <label>Target (IP or domain)</label>
-                    <input type="text" id="target" placeholder="10.10.10.1 или example.com">
+                    <input type="text" id="target" placeholder="10.10.10.1 or example.com">
                 </div>
 
                 <div class="form-group">
                     <label>nmap flags</label>
                     <input type="text" id="nmap_flags" value="-T4 --open">
-                    <div class="hint">За бързо: -T4 --open | За детайлно: -T4 -sV --open | -oG се добавя автоматично
-                    </div>
+                    <div class="hint">Fast: -T4 --open | Detailed: -T4 -sV --open</div>
                 </div>
 
                 <div class="form-group">
@@ -45,8 +44,9 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="vhost_wordlist">VHOST WORDLIST</label>
-                    <input type="text" id="vhost_wordlist" value="{{ default_vhost_wordlist }}">
+                    <label>Wordlist — VHOST (ffuf)</label>
+                    <input type="text" id="vhost_wordlist" value="">
+                    <div class="hint">Leave blank to skip</div>
                 </div>
 
                 <div class="form-group">
@@ -64,7 +64,7 @@
             </div>
         </div>
 
-        <!-- История -->
+        <!-- History -->
         <div class="panel">
             <div class="panel-header" style="justify-content:space-between">
                 <span>⟳ History</span>
@@ -89,16 +89,17 @@
         </div>
     </div>
 
-    <!-- ── Дясна колона: live резултати ── -->
+    <!-- ── Right column: live results ── -->
     <div>
         <div class="panel">
             <div class="panel-header">◈ Live results</div>
             <div class="panel-body">
 
-                <!-- Прогрес стъпки -->
+                <!-- Pipeline stages -->
                 <div class="stages">
                     <div class="stage" id="stage-nmap">nmap</div>
                     <div class="stage" id="stage-gobuster">gobuster</div>
+                    <div class="stage" id="stage-domains">domains</div>
                     <div class="stage" id="stage-vhost">vhost</div>
                     <div class="stage" id="stage-dns">dns</div>
                 </div>
@@ -106,28 +107,24 @@
                 <!-- Terminal log -->
                 <div class="terminal" id="terminal"></div>
 
-                <!-- Tabs с резултати -->
+                <!-- Result tabs -->
                 <div style="margin-top:1.5rem">
                     <div class="tabs">
                         <button class="tab active" onclick="showTab('ports', this)">
-                            Ports
-                            <span class="tab-count" id="cnt-ports">0</span>
+                            Ports <span class="tab-count" id="cnt-ports">0</span>
                         </button>
                         <button class="tab" onclick="showTab('dirs', this)">
-                            Directories
-                            <span class="tab-count" id="cnt-dirs">0</span>
+                            Directories <span class="tab-count" id="cnt-dirs">0</span>
                         </button>
                         <button class="tab" onclick="showTab('vhosts', this)">
-                            VHOSTS
-                            <span class="tab-count" id="cnt-vhosts">0</span>
+                            VHOSTS <span class="tab-count" id="cnt-vhosts">0</span>
                         </button>
                         <button class="tab" onclick="showTab('dns', this)">
-                            DNS
-                            <span class="tab-count" id="cnt-dns">0</span>
+                            DNS <span class="tab-count" id="cnt-dns">0</span>
                         </button>
                     </div>
 
-                    <!-- Портове -->
+                    <!-- Ports -->
                     <div class="tab-panel active" id="tab-ports">
                         <table class="result-table">
                             <thead>
@@ -139,14 +136,12 @@
                             </tr>
                             </thead>
                             <tbody id="ports-body">
-                            <tr>
-                                <td colspan="4" class="empty-state">No results</td>
-                            </tr>
+                            <tr><td colspan="4" class="empty-state">No results</td></tr>
                             </tbody>
                         </table>
                     </div>
 
-                    <!-- Директории -->
+                    <!-- Directories -->
                     <div class="tab-panel" id="tab-dirs">
                         <table class="result-table">
                             <thead>
@@ -157,14 +152,12 @@
                             </tr>
                             </thead>
                             <tbody id="dirs-body">
-                            <tr>
-                                <td colspan="3" class="empty-state">No results</td>
-                            </tr>
+                            <tr><td colspan="3" class="empty-state">No results</td></tr>
                             </tbody>
                         </table>
                     </div>
 
-                    <!-- fuzzing -->
+                    <!-- VHosts -->
                     <div class="tab-panel" id="tab-vhosts">
                         <table class="result-table">
                             <thead>
@@ -178,11 +171,7 @@
                             </tr>
                             </thead>
                             <tbody id="vhosts-body">
-                            <tr>
-                                <td colspan="6" class="empty-state">
-                                    No results
-                                </td>
-                            </tr>
+                            <tr><td colspan="6" class="empty-state">No results</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -198,9 +187,7 @@
                             </tr>
                             </thead>
                             <tbody id="dns-body">
-                            <tr>
-                                <td colspan="3" class="empty-state">No results</td>
-                            </tr>
+                            <tr><td colspan="3" class="empty-state">No results</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -209,6 +196,29 @@
         </div>
     </div>
 </div>
+
+<!-- ── Domain Confirmation Modal ── -->
+<div id="domainModal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+        <div class="modal-header">🔎 Detected domains</div>
+        <div class="modal-body">
+            <div id="domainChecklist">
+                <!-- populated by JS -->
+            </div>
+        </div>
+        <div class="modal-add-domain">
+            <input type="text" id="customDomainInput"
+                   placeholder="Add domain manually (e.g. example.htb)"
+                   onkeydown="if(event.key==='Enter') addCustomDomain()">
+            <button type="button" class="btn btn-primary" onclick="addCustomDomain()">+</button>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="confirmDomains()">▶ Continue</button>
+            <button type="button" class="btn" onclick="confirmDomains(true)" style="color:var(--muted)">Skip vhost/dns</button>
+        </div>
+    </div>
+</div>
+
 <script src="{% static 'core/js/main.js' %}"></script>
 </body>
 </html>

@@ -1,133 +1,133 @@
-import signal
-import os
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.conf import settings
 
-from core.models import ScanSession, PortResult, DirectoryResult, DNSResult
-from tasks.scan_tasks import run_full_scan
-from django.views.decorators.csrf import ensure_csrf_cookie
-from celery import current_app
+from core.models import ScanSession
+from tasks.scan_tasks import run_discovery, run_expansion
 
 
 @ensure_csrf_cookie
 def index(request):
-    """Главна страница — форма за нов скан + история."""
+    """Main page — scan form + history."""
     sessions = ScanSession.objects.prefetch_related(
-        'ports',
-        'directories',
-        'dns_records'
+        'ports', 'directories', 'dns_records',
     )[:10]
 
-    context = {
+    return render(request, 'core/index.html', {
         'sessions': sessions,
         'default_dir_wordlist': settings.DEFAULT_DIR_WORDLIST,
         'default_dns_wordlist': settings.DEFAULT_DNS_WORDLIST,
-    }
-
-    return render(request, 'core/index.html', context)
+    })
 
 
 @require_POST
 def start_scan(request):
-    """Създава нова сесия и пуска Celery task."""
+    """Create a session and launch Phase 1 (discovery)."""
     target = request.POST.get('target', '').strip()
-    nmap_flags = request.POST.get('nmap_flags', '-T4 --open').strip()
-    dir_wordlist = request.POST.get('dir_wordlist', '').strip()
-    vhost_wordlist = request.POST.get('vhost_wordlist', '').strip()
-    dns_wordlist = request.POST.get('dns_wordlist', '').strip()
-
     if not target:
-        return JsonResponse({'error': 'Input target!'}, status=400)
+        return JsonResponse({'error': 'Target is required.'}, status=400)
 
     session = ScanSession.objects.create(
         target=target,
-        nmap_flags=nmap_flags,
-        dir_wordlist=dir_wordlist,
-        vhost_wordlist=vhost_wordlist,
-        dns_wordlist=dns_wordlist,
+        nmap_flags=request.POST.get('nmap_flags', '-T4 --open').strip(),
+        dir_wordlist=request.POST.get('dir_wordlist', '').strip(),
+        vhost_wordlist=request.POST.get('vhost_wordlist', '').strip(),
+        dns_wordlist=request.POST.get('dns_wordlist', '').strip(),
     )
 
-    # Пускаме async Celery task
-    # countdown=2 дава време на браузъра да отвори WebSocket преди task-ът
-    # да изпрати първото съобщение — без това 'started' се губи в Redis
-    run_full_scan.apply_async(args=[session.id], countdown=2)
+    # countdown=2 gives the browser time to open WebSocket before first event
+    run_discovery.apply_async(args=[session.id], countdown=2)
 
     return JsonResponse({'session_id': session.id, 'status': 'started'})
 
 
-def session_detail(request, session_id):
-    """Детайлна страница за сесия с резултатите."""
+@require_POST
+def continue_scan(request, session_id):
+    """
+    Phase 2 trigger — user confirms domains, we launch expansion.
+
+    No polling, no Redis key, no blocked worker.
+    The frontend POSTs the confirmed domains here.
+    """
+    import json
+
     session = get_object_or_404(ScanSession, id=session_id)
 
-    context = {
+    if session.status != 'awaiting_domains':
+        return JsonResponse(
+            {'error': f'Session is not awaiting domains (status={session.status}).'},
+            status=400,
+        )
+
+    try:
+        body = json.loads(request.body)
+        domains = body.get('domains', [])
+    except (json.JSONDecodeError, AttributeError):
+        domains = []
+
+    session.confirmed_domains = domains
+    session.status = 'running'
+    session.save()
+
+    if domains:
+        run_expansion.apply_async(args=[session.id], countdown=1)
+    else:
+        # User skipped — mark as completed
+        from django.utils import timezone
+        session.status = 'completed'
+        session.completed_at = timezone.now()
+        session.save()
+
+    return JsonResponse({
+        'session_id': session.id,
+        'confirmed_domains': domains,
+        'status': 'expansion_started' if domains else 'completed',
+    })
+
+
+def session_detail(request, session_id):
+    """Detail page for a session."""
+    session = get_object_or_404(ScanSession, id=session_id)
+    return render(request, 'core/session_detail.html', {
         'session': session,
         'ports': session.ports.all(),
         'directories': session.directories.all(),
+        'vhosts': session.vhosts.all(),
         'dns_records': session.dns_records.all(),
-    }
-    return render(request, 'core/session_detail.html', context)
+    })
 
 
 def session_status(request, session_id):
-    """API endpoint за статуса на сесията (за polling ако е нужно)."""
+    """API: session status (for polling fallback)."""
     session = get_object_or_404(ScanSession, id=session_id)
-
     return JsonResponse({
         'status': session.status,
         'ports_count': session.ports.count(),
         'directories_count': session.directories.count(),
+        'vhosts_count': session.vhosts.count(),
         'dns_count': session.dns_records.count(),
     })
 
 
 @require_POST
-def clear_database(request):
-    """Изтрива всички сканирания от БД."""
-    ScanSession.objects.all().delete()
-    return JsonResponse({'status': 'cleared', 'message': 'Database cleared.'})
+def stop_scan(request, session_id):
+    """Stop a running scan. ProcessManager handles cleanup."""
+    session = get_object_or_404(ScanSession, id=session_id)
+    session.status = 'stopping'
+    session.save()
+    return JsonResponse({'status': 'stopping'})
 
 
 @require_POST
 def delete_session(request, session_id):
-    """Изтрива конкретна сесия."""
     session = get_object_or_404(ScanSession, id=session_id)
     session.delete()
     return JsonResponse({'status': 'deleted'})
 
 
 @require_POST
-def stop_scan(request, session_id):
-
-    session = get_object_or_404(ScanSession, id=session_id)
-
-    session.status = 'stopping'
-    session.save()
-
-    # kill external tools only
-    try:
-        if session.nmap_pid:
-            os.killpg(os.getpgid(session.nmap_pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-    try:
-        if session.gobuster_pid:
-            os.killpg(os.getpgid(session.gobuster_pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-    try:
-        if session.vhost_pid:
-            os.killpg(os.getpgid(session.vhost_pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-    try:
-        if session.dns_pid:
-            os.killpg(os.getpgid(session.dns_pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-    return JsonResponse({'status': 'stopped'})
+def clear_database(request):
+    ScanSession.objects.all().delete()
+    return JsonResponse({'status': 'cleared'})

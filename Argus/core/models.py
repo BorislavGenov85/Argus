@@ -2,42 +2,40 @@ from django.db import models
 
 
 class ScanSession(models.Model):
-    """Една сесия на сканиране — един таргет."""
+    """One scan session — one target."""
 
     STATUS_CHOICES = [
-        ('pending', 'pending'),
-        ('running', 'running'),
-        ('stopping', 'stopping'),
-        ('stopped', 'stopped'),
-        ('completed', 'completed'),
-        ('failed', 'failed'),
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('awaiting_domains', 'Awaiting domain confirmation'),
+        ('stopping', 'Stopping'),
+        ('stopped', 'Stopped'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
     ]
 
     target = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    nmap_pid = models.IntegerField(null=True, blank=True)
-    gobuster_pid = models.IntegerField(null=True, blank=True)
-    vhost_pid = models.IntegerField(null=True, blank=True)
-    dns_pid = models.IntegerField(null=True, blank=True)
 
-    # Опции за сканиране
-    nmap_flags = models.CharField(
-        max_length=500,
-        default='-T4 --open',
-        help_text='Additional nmap flags'
-    )
+    # Scan options
+    nmap_flags = models.CharField(max_length=500, default='-T4 --open')
     dir_wordlist = models.CharField(max_length=500, blank=True)
-    vhost_wordlist = models.CharField(max_length=500, blank=True,
-                                      default='/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt'
-                                      )
+    vhost_wordlist = models.CharField(
+        max_length=500, blank=True,
+        default='/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt',
+    )
     dns_wordlist = models.CharField(max_length=500, blank=True)
 
-    # Celery task ID — за проследяване
+    # Domains
+    discovered_domains = models.JSONField(default=list, blank=True)
+    confirmed_domains = models.JSONField(default=list, blank=True)
+
+    # Celery task tracking
     task_id = models.CharField(max_length=255, blank=True)
 
-    # Обща бележка / грешка
+    # Error
     error_message = models.TextField(blank=True)
 
     class Meta:
@@ -48,18 +46,16 @@ class ScanSession(models.Model):
 
 
 class PortResult(models.Model):
-    """Резултат от nmap — един отворен порт."""
+    """An open port found by nmap."""
 
     session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='ports')
     port = models.IntegerField()
-    protocol = models.CharField(max_length=10, default='tcp')  # tcp / udp
-    state = models.CharField(max_length=20)                    # open / filtered
-    service = models.CharField(max_length=100, blank=True)     # http, ssh, ftp...
-    product = models.CharField(max_length=200, blank=True)     # Apache, OpenSSH...
-    version = models.CharField(max_length=100, blank=True)     # 2.4.49, 8.2p1...
-    extra_info = models.TextField(blank=True)                  # nmap script output
-
-    # Дали е HTTP порт — за gobuster
+    protocol = models.CharField(max_length=10, default='tcp')
+    state = models.CharField(max_length=20)
+    service = models.CharField(max_length=100, blank=True)
+    product = models.CharField(max_length=200, blank=True)
+    version = models.CharField(max_length=100, blank=True)
+    extra_info = models.TextField(blank=True)
     is_http = models.BooleanField(default=False)
 
     class Meta:
@@ -70,13 +66,13 @@ class PortResult(models.Model):
 
 
 class DirectoryResult(models.Model):
-    """Резултат от gobuster dir — намерена директория/файл."""
+    """A directory/file found by gobuster."""
 
     session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='directories')
     url = models.CharField(max_length=1000)
     status_code = models.IntegerField()
-    size = models.IntegerField(default=0)         # Content-Length
-    port = models.IntegerField(default=80)        # На кой порт е намерено
+    size = models.IntegerField(default=0)
+    port = models.IntegerField(default=80)
 
     class Meta:
         ordering = ['status_code', 'url']
@@ -86,26 +82,15 @@ class DirectoryResult(models.Model):
 
 
 class VHostResult(models.Model):
+    """A virtual host found by ffuf."""
 
-    session = models.ForeignKey(
-        ScanSession,
-        on_delete=models.CASCADE,
-        related_name='vhosts'
-    )
-
+    session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='vhosts')
     hostname = models.CharField(max_length=500)
-
     port = models.IntegerField(default=80)
-
     status_code = models.IntegerField(default=0)
-
     content_length = models.IntegerField(default=0)
-
     words = models.IntegerField(default=0)
-
     lines = models.IntegerField(default=0)
-
-    title = models.CharField(max_length=500, blank=True)
 
     class Meta:
         ordering = ['hostname']
@@ -115,22 +100,17 @@ class VHostResult(models.Model):
 
 
 class DNSResult(models.Model):
-    """Резултат от DNS енумерация — намерен субдомейн."""
+    """A DNS record found by enumeration."""
 
     RECORD_TYPES = [
-        ('A', 'A'),
-        ('AAAA', 'AAAA'),
-        ('CNAME', 'CNAME'),
-        ('MX', 'MX'),
-        ('TXT', 'TXT'),
-        ('NS', 'NS'),
-        ('SOA', 'SOA'),
+        ('A', 'A'), ('AAAA', 'AAAA'), ('CNAME', 'CNAME'),
+        ('MX', 'MX'), ('TXT', 'TXT'), ('NS', 'NS'), ('SOA', 'SOA'),
     ]
 
     session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='dns_records')
     subdomain = models.CharField(max_length=500)
     record_type = models.CharField(max_length=10, choices=RECORD_TYPES)
-    value = models.CharField(max_length=500)       # IP адрес или hostname
+    value = models.CharField(max_length=500)
 
     class Meta:
         ordering = ['record_type', 'subdomain']
