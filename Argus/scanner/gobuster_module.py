@@ -21,7 +21,12 @@ if TYPE_CHECKING:
     from pipeline.events import EventBus
 
 
-GOBUSTER_LINE_RE = re.compile(r'^(/\S*)\s+\(Status:\s*(\d+)\)\s+\[Size:\s*(\d+)]')
+GOBUSTER_LINE_RE = re.compile(
+    r'^(/\S*)'           # path
+    r'\s+\(Status:\s*(\d+)\)'  # status code
+    r'(?:\s+\[Size:\s*(\d+)\])?'   # size — optional
+    r'(?:\s+\[-->\s*([^\]]+)\])?'  # redirect target — optional
+)
 
 
 class GobusterModule(ReconModule):
@@ -62,6 +67,7 @@ class GobusterModule(ReconModule):
                 '-t', '50',
                 '-q',
                 '--no-error',
+                '--follow-redirect',
             ]
 
             proc = pm.start(label, cmd)
@@ -111,9 +117,14 @@ class GobusterModule(ReconModule):
         match = GOBUSTER_LINE_RE.match(line)
         if not match:
             return None
+
+        size_str = match.group(3)
+        redirect = match.group(4)
+
         return {
             'url': f'{base_url}{match.group(1)}',
             'status_code': int(match.group(2)),
-            'size': int(match.group(3)),
+            'size': int(size_str) if size_str else 0,
             'port': port,
+            'redirect': redirect.strip() if redirect else None,
         }

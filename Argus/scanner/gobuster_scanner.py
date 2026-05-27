@@ -26,7 +26,8 @@ def run_gobuster_dir(
         '-w', wordlist,
         '-t', '50',           # 50 threads
         '-q',                 # quiet — само резултатите
-        '--no-error',         # не спира при грешки
+        '--no-error',
+        '--follow-redirect',
     ]
 
     # Добавяме допълнителни флагове ако има
@@ -57,7 +58,7 @@ def run_gobuster_dir(
         if process.returncode not in (0, 1):
             stderr = process.stderr.read()
             if stderr:
-                yield {'type': 'error', 'message': f'Gobuster грешка: {stderr[:200]}'}
+                yield {'type': 'error', 'message': f'Gobuster error: {stderr[:200]}'}
 
     except FileNotFoundError:
         yield {

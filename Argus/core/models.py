@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class ScanSession(models.Model):
@@ -43,6 +44,71 @@ class ScanSession(models.Model):
 
     def __str__(self):
         return f'{self.target} — {self.status} ({self.created_at.strftime("%d.%m.%Y %H:%M")})'
+
+    @property
+    def duration_seconds(self):
+        if self.completed_at and self.created_at:
+            return int((self.completed_at - self.created_at).total_seconds())
+        return None
+
+    @property
+    def findings_count(self):
+        return (
+            self.ports.count() +
+            self.directories.count() +
+            self.vhosts.count() +
+            self.dns_records.count()
+        )
+
+    @property
+    def modules_executed(self):
+        return list(self.module_runs.values_list('module_name', flat=True))
+
+
+class ModuleRun(models.Model):
+    """Raw output from a single module execution within a scan."""
+
+    session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='module_runs')
+    module_name = models.CharField(max_length=100)
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    exit_code = models.IntegerField(null=True, blank=True)
+    stdout = models.TextField(blank=True)
+    stderr = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[('running','Running'),('completed','Completed'),('failed','Failed'),('skipped','Skipped')],
+        default='running',
+    )
+
+    class Meta:
+        ordering = ['started_at']
+
+    def __str__(self):
+        return f'{self.session.target} / {self.module_name} [{self.status}]'
+
+    @property
+    def duration_seconds(self):
+        if self.completed_at and self.started_at:
+            return round((self.completed_at - self.started_at).total_seconds(), 1)
+        return None
+
+
+class ScanTimelineEvent(models.Model):
+    """A timestamped event in the scan timeline for the analyst view."""
+
+    session = models.ForeignKey(ScanSession, on_delete=models.CASCADE, related_name='timeline_events')
+    timestamp = models.DateTimeField(default=timezone.now)
+    event_type = models.CharField(max_length=50)   # module_started, port_found, etc.
+    module = models.CharField(max_length=100, blank=True)
+    message = models.CharField(max_length=500)
+    data = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['timestamp']
+
+    def __str__(self):
+        return f'[{self.timestamp.strftime("%H:%M:%S")}] {self.event_type}: {self.message}'
 
 
 class PortResult(models.Model):

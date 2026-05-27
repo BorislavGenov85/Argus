@@ -9,7 +9,9 @@ Phase 2: run_expansion
   Triggered by POST /scan/{id}/continue/ after user confirms domains.
   Runs vhost + dns on the confirmed domains.
 
-No Redis polling. No blocked workers. Clean handoff via HTTP endpoint.
+Now also persists:
+  - ModuleRun: raw stdout/stderr per module
+  - ScanTimelineEvent: timestamped event log
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from django.utils import timezone
 
 from core.models import (
     ScanSession, PortResult, DirectoryResult, VHostResult, DNSResult,
+    ModuleRun, ScanTimelineEvent,
 )
 from pipeline.context import ReconContext, HttpService
 from pipeline.events import EventBus, EventType, ScanEvent
@@ -31,10 +34,25 @@ from scanner import ALL_MODULES
 
 
 def _make_dispatcher(session_id: int):
-    """Create a WS dispatch function bound to a session."""
+    """Create a WS dispatch function bound to a session.
+    Also persists each event as a ScanTimelineEvent.
+    """
     channel_layer = get_channel_layer()
 
     def dispatch(event: ScanEvent) -> None:
+        # Persist timeline event
+        try:
+            ScanTimelineEvent.objects.create(
+                session_id=session_id,
+                event_type=event.type.value,
+                module=event.module or '',
+                message=event.message or '',
+                data=event.data,
+            )
+        except Exception:
+            pass  # Never let persistence failure break the scan
+
+        # Send WS
         async_to_sync(channel_layer.group_send)(
             f'scan_{session_id}',
             {
@@ -47,7 +65,6 @@ def _make_dispatcher(session_id: int):
 
 
 def _check_stop(session_id: int) -> bool:
-    """Check if the session has been stopped externally."""
     try:
         session = ScanSession.objects.get(id=session_id)
         return session.status == 'stopping'
@@ -56,7 +73,6 @@ def _check_stop(session_id: int) -> bool:
 
 
 def _build_context(session: ScanSession, pm: ProcessManager) -> ReconContext:
-    """Build a ReconContext from a ScanSession model."""
     return ReconContext(
         session_id=session.id,
         target=session.target,
@@ -124,8 +140,87 @@ def _persist_findings(session: ScanSession, context: ReconContext) -> None:
             )
 
 
+class _RawCapturingEventBus(EventBus):
+    """
+    EventBus subclass that intercepts LOG events to capture raw stdout
+    per module into ModuleRun records.
+    """
+
+    def __init__(self, dispatcher, session_id: int):
+        super().__init__(dispatcher)
+        self._session_id = session_id
+        self._module_runs: dict[str, int] = {}  # module_name -> ModuleRun.id
+
+    def module_started(self, module: str, message: str = '') -> None:
+        # Create ModuleRun record
+        try:
+            run = ModuleRun.objects.create(
+                session_id=self._session_id,
+                module_name=module,
+                status='running',
+            )
+            self._module_runs[module] = run.id
+        except Exception:
+            pass
+        super().module_started(module, message)
+
+    def module_completed(self, module: str, message: str = '') -> None:
+        self._finish_module_run(module, 'completed', exit_code=0)
+        super().module_completed(module, message)
+
+    def module_failed(self, module: str, error: str) -> None:
+        self._finish_module_run(module, 'failed', exit_code=1)
+        super().module_failed(module, error)
+
+    def module_skipped(self, module: str, reason: str) -> None:
+        # Create a skipped record
+        try:
+            ModuleRun.objects.create(
+                session_id=self._session_id,
+                module_name=module,
+                status='skipped',
+                completed_at=timezone.now(),
+                stderr=reason,
+            )
+        except Exception:
+            pass
+        super().module_skipped(module, reason)
+
+    def log(self, module: str, message: str) -> None:
+        # Append raw line to ModuleRun.stdout
+        run_id = self._module_runs.get(module)
+        if run_id:
+            try:
+                ModuleRun.objects.filter(id=run_id).update(
+                    stdout=models_concat_stdout(run_id, message)
+                )
+            except Exception:
+                pass
+        super().log(module, message)
+
+    def _finish_module_run(self, module: str, status: str, exit_code: int | None = None):
+        run_id = self._module_runs.get(module)
+        if run_id:
+            try:
+                ModuleRun.objects.filter(id=run_id).update(
+                    status=status,
+                    completed_at=timezone.now(),
+                    exit_code=exit_code,
+                )
+            except Exception:
+                pass
+
+
+def models_concat_stdout(run_id: int, new_line: str) -> str:
+    """Fetch current stdout and append new line. Used in log()."""
+    try:
+        run = ModuleRun.objects.get(id=run_id)
+        return (run.stdout + '\n' + new_line).lstrip('\n')
+    except Exception:
+        return new_line
+
+
 def _finalize(session, status, pm, bus, message=''):
-    """Set final session state and emit closing event."""
     session.refresh_from_db()
     session.status = status
     session.completed_at = timezone.now()
@@ -142,13 +237,7 @@ def _finalize(session, status, pm, bus, message=''):
 
 @shared_task(bind=True)
 def run_discovery(self, session_id: int):
-    """
-    Phase 1: nmap + gobuster.
-
-    After completion:
-    - If domains discovered → status=awaiting_domains, WS event, RETURN
-    - If no domains and no expansion needed → status=completed
-    """
+    """Phase 1: nmap + gobuster."""
     try:
         session = ScanSession.objects.get(id=session_id)
     except ScanSession.DoesNotExist:
@@ -160,7 +249,8 @@ def run_discovery(self, session_id: int):
 
     pm = ProcessManager()
     context = _build_context(session, pm)
-    bus = EventBus(_make_dispatcher(session_id))
+    dispatcher = _make_dispatcher(session_id)
+    bus = _RawCapturingEventBus(dispatcher, session_id)
 
     bus.emit(EventType.SCAN_STARTED, message=f'Starting recon for {session.target}')
 
@@ -174,12 +264,10 @@ def run_discovery(self, session_id: int):
             _finalize(session, 'stopped', pm, bus)
             return
 
-        # Check if expansion is needed
         needs_expansion = session.vhost_wordlist or session.dns_wordlist
         discovered = context.unique_discovered_domains
 
         if needs_expansion and context.has_http:
-            # Pause — send domains to frontend, free the Celery worker
             session.refresh_from_db()
             session.discovered_domains = discovered
             session.status = 'awaiting_domains'
@@ -194,7 +282,6 @@ def run_discovery(self, session_id: int):
             pm.cleanup()
             return
 
-        # No expansion needed — done
         _finalize(session, 'completed', pm, bus, 'Scan completed.')
 
     except Exception as e:
@@ -206,11 +293,7 @@ def run_discovery(self, session_id: int):
 
 @shared_task(bind=True)
 def run_expansion(self, session_id: int):
-    """
-    Phase 2: vhost + dns on confirmed domains.
-
-    Triggered by POST /scan/{id}/continue/.
-    """
+    """Phase 2: vhost + dns on confirmed domains."""
     try:
         session = ScanSession.objects.get(id=session_id)
     except ScanSession.DoesNotExist:
@@ -229,7 +312,6 @@ def run_expansion(self, session_id: int):
     pm = ProcessManager()
     context = _build_context(session, pm)
 
-    # Restore state from discovery phase
     context.confirmed_domains = list(session.confirmed_domains)
 
     for port_result in session.ports.filter(is_http=True):
@@ -241,11 +323,11 @@ def run_expansion(self, session_id: int):
         ))
         context.open_ports.add(port_result.port)
 
-    # Mark discovery as done so expansion modules don't block on requires
     context.completed_modules.add('nmap')
     context.completed_modules.add('gobuster')
 
-    bus = EventBus(_make_dispatcher(session_id))
+    dispatcher = _make_dispatcher(session_id)
+    bus = _RawCapturingEventBus(dispatcher, session_id)
     bus.emit(
         EventType.DOMAINS_CONFIRMED,
         message=f'Continuing with {len(context.confirmed_domains)} domain(s).',

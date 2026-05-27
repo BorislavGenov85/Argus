@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Argus — Scan #{{ session.id }}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --bg-1: #0f1217;
+    --bg-2: #151820;
+    --bg-3: #1c2028;
+    --bg-4: #22262f;
+    --border: #1e2530;
+    --border-hi: #2a3040;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-muted: #334155;
+    --accent: #22d3ee;
+    --accent-dim: rgba(34,211,238,0.12);
+    --green: #4ade80;
+    --green-dim: rgba(74,222,128,0.10);
+    --red: #f87171;
+    --red-dim: rgba(248,113,113,0.10);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251,191,36,0.10);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167,139,250,0.10);
+    --orange: #fb923c;
+    --orange-dim: rgba(251,146,60,0.10);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    font-size: 13px;
+  }
+
+  /* ── NAV ── */
+  nav {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 200;
+  }
+
+  .nav-brand {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--accent);
+    text-decoration: none;
+    letter-spacing: -0.5px;
+  }
+
+  .nav-brand::before { content: '◈ '; font-size: 14px; }
+
+  .nav-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .nav-breadcrumb a { color: var(--text-dim); text-decoration: none; }
+  .nav-breadcrumb a:hover { color: var(--accent); }
+  .nav-breadcrumb .sep { color: var(--text-muted); }
+  .nav-breadcrumb .current { color: var(--text); }
+
+  /* ── HEADER ── */
+  .scan-header {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+  }
+
+  .scan-header-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .scan-target {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 28px;
+    color: var(--text);
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .scan-id-badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+  }
+
+  .scan-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .meta-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .meta-value {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* Status badge */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .status-badge::before { content: '●'; font-size: 8px; }
+  .status-completed { background: var(--green-dim); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+  .status-running { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(34,211,238,0.2); animation: pulse 2s infinite; }
+  .status-failed { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+  .status-stopped { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(251,191,36,0.2); }
+  .status-awaiting_domains { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(167,139,250,0.2); }
+  .status-pending, .status-stopping { background: var(--bg-3); color: var(--text-muted); border: 1px solid var(--border); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+  /* Summary counters */
+  .summary-counters {
+    display: flex;
+    gap: 1px;
+    background: var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 20px;
+  }
+
+  .counter-box {
+    flex: 1;
+    background: var(--bg-2);
+    padding: 16px 20px;
+    text-align: center;
+  }
+
+  .counter-num {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 28px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .counter-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .c-port { color: var(--accent); }
+  .c-dir { color: var(--green); }
+  .c-vhost { color: var(--purple); }
+  .c-dns { color: var(--yellow); }
+  .c-total { color: var(--text); }
+
+  /* Header actions */
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+
+  .btn-ghost { background: var(--bg-2); color: var(--text-dim); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+  .btn-danger { background: var(--red-dim); color: var(--red); border-color: rgba(248,113,113,0.2); }
+  .btn-danger:hover { background: rgba(248,113,113,0.2); }
+  .btn-stop { background: var(--yellow-dim); color: var(--yellow); border-color: rgba(251,191,36,0.2); }
+
+  /* ── TABS ── */
+  .tabs-bar {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs-bar::-webkit-scrollbar { display: none; }
+
+  .tab-btn {
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-count {
+    background: var(--bg-3);
+    color: var(--text-dim);
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 10px;
+  }
+
+  .tab-btn.active .tab-count { background: var(--accent-dim); color: var(--accent); }
+
+  /* ── CONTENT ── */
+  .content { max-width: 1400px; margin: 0 auto; padding: 32px; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── OVERVIEW TAB ── */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .info-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    background: var(--bg-2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-body { padding: 16px; }
+
+  .kv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-hi);
+    gap: 16px;
+  }
+
+  .kv-row:last-child { border-bottom: none; }
+  .kv-key { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+  .kv-val { color: var(--text); font-size: 12px; font-weight: 500; text-align: right; word-break: break-all; }
+
+  .module-run-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .module-run-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .module-run-name { flex: 1; font-size: 12px; font-weight: 500; }
+
+  .module-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-completed { background: var(--green); }
+  .dot-failed { background: var(--red); }
+  .dot-skipped { background: var(--text-muted); }
+  .dot-running { background: var(--accent); animation: pulse 1.5s infinite; }
+
+  .module-dur { color: var(--text-muted); font-size: 10px; }
+
+  /* ── RECON INTELLIGENCE (Findings tab) ── */
+  .intel-section { margin-bottom: 28px; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+  }
+
+  .section-count {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .section-divider {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Port items */
+  .port-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .port-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    gap: 16px;
+    transition: border-color 0.15s;
+  }
+
+  .port-item:hover { border-color: var(--accent); }
+
+  .port-num {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--accent);
+    min-width: 64px;
+  }
+
+  .port-proto {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-3);
+    border-radius: 3px;
+    padding: 2px 6px;
+  }
+
+  .port-service {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+    min-width: 80px;
+  }
+
+  .port-product { color: var(--text-dim); font-size: 12px; flex: 1; }
+
+  .port-http-badge {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--orange-dim);
+    color: var(--orange);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* Domain items */
+  .domain-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .domain-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    gap: 12px;
+    transition: border-color 0.15s;
+  }
+
+  .domain-item:hover { border-color: var(--green); }
+
+  .domain-icon { color: var(--text-muted); font-size: 14px; }
+
+  .domain-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--green);
+    flex: 1;
+  }
+
+  .domain-source {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-3);
+    border-radius: 3px;
+    padding: 2px 7px;
+  }
+
+  /* Vhost items */
+  .vhost-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    gap: 12px;
+    margin-bottom: 4px;
+    transition: border-color 0.15s;
+  }
+
+  .vhost-item:hover { border-color: var(--purple); }
+  .vhost-name { font-weight: 600; color: var(--purple); flex: 1; font-size: 13px; }
+
+  .sc-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .sc-2xx { background: var(--green-dim); color: var(--green); }
+  .sc-3xx { background: var(--yellow-dim); color: var(--yellow); }
+  .sc-4xx { background: var(--red-dim); color: var(--red); }
+  .sc-other { background: var(--bg-3); color: var(--text-dim); }
+
+  /* Directory items */
+  .dir-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    gap: 12px;
+    margin-bottom: 3px;
+    transition: border-color 0.15s;
+    font-size: 12px;
+  }
+
+  .dir-item:hover { border-color: var(--green); }
+  .dir-url { flex: 1; color: var(--text); word-break: break-all; }
+  .dir-size { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+
+  /* DNS */
+  .dns-table { width: 100%; border-collapse: collapse; }
+  .dns-table th {
+    padding: 8px 14px;
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .dns-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-hi);
+    font-size: 12px;
+  }
+  .dns-type-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--yellow-dim);
+    color: var(--yellow);
+    font-weight: 600;
+  }
+
+  /* ── RAW OUTPUT TAB ── */
+  .raw-tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .raw-tab-btn {
+    padding: 6px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .raw-tab-btn:hover, .raw-tab-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .raw-output-area {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .raw-header {
+    padding: 10px 16px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .raw-pre {
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text-dim);
+    max-height: 600px;
+    overflow-y: auto;
+    background: var(--bg);
+  }
+
+  .raw-pre::-webkit-scrollbar { width: 6px; }
+  .raw-pre::-webkit-scrollbar-track { background: var(--bg); }
+  .raw-pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .raw-empty { padding: 48px 32px; text-align: center; color: var(--text-muted); }
+
+  /* highlight port lines */
+  .line-port { color: var(--accent); }
+  .line-dir { color: var(--green); }
+  .line-vhost { color: var(--purple); }
+  .line-error { color: var(--red); }
+
+  /* ── TIMELINE ── */
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+
+  .tl-item {
+    display: flex;
+    gap: 16px;
+    padding: 10px 0;
+    border-left: 2px solid var(--border);
+    padding-left: 20px;
+    position: relative;
+  }
+
+  .tl-item::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 16px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg-3);
+    border: 2px solid var(--border);
+  }
+
+  .tl-item.ev-scan_started::before { border-color: var(--accent); background: var(--accent-dim); }
+  .tl-item.ev-scan_completed::before { border-color: var(--green); background: var(--green-dim); }
+  .tl-item.ev-scan_failed::before { border-color: var(--red); background: var(--red-dim); }
+  .tl-item.ev-module_started::before { border-color: var(--text-dim); background: var(--bg-3); }
+  .tl-item.ev-module_completed::before { border-color: var(--green); background: var(--green-dim); }
+  .tl-item.ev-port_found::before { border-color: var(--accent); background: var(--accent-dim); }
+  .tl-item.ev-directory_found::before { border-color: var(--green); background: var(--green-dim); }
+  .tl-item.ev-vhost_found::before { border-color: var(--purple); background: var(--purple-dim); }
+  .tl-item.ev-dns_record_found::before { border-color: var(--yellow); background: var(--yellow-dim); }
+  .tl-item.ev-domains_awaiting::before { border-color: var(--purple); background: var(--purple-dim); }
+
+  .tl-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 60px;
+    padding-top: 1px;
+  }
+
+  .tl-content { flex: 1; }
+  .tl-message { font-size: 12px; color: var(--text); line-height: 1.5; }
+  .tl-module { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+  .tl-data {
+    margin-top: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  /* Tabs for different data sections in Findings */
+  .section-tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+  .section-tab-btn {
+    padding: 6px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .section-tab-btn:hover { color: var(--text); }
+  .section-tab-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  /* Copy button */
+  .copy-btn {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.15s;
+  }
+  .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Scroll fix for raw output */
+  .raw-tab-panel { display: none; }
+  .raw-tab-panel.active { display: block; }
+
+  /* error banner */
+  .error-banner {
+    background: var(--red-dim);
+    border: 1px solid rgba(248,113,113,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    color: var(--red);
+    font-size: 12px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  /* loading spinner */
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">ARGUS</a>
+  <div class="nav-breadcrumb">
+    <a href="/scans/">Scan History</a>
+    <span class="sep">/</span>
+    <span class="current">{{ session.target }} #{{ session.id }}</span>
+  </div>
+  <div class="header-actions" id="headerActions">
+    {% if session.status in 'running,awaiting_domains,stopping' %}
+    <button class="btn btn-stop" onclick="stopScan()">⏹ Stop Scan</button>
+    {% endif %}
+    <button class="btn btn-danger" onclick="deleteScan()">✕ Delete</button>
+    <a href="/scans/" class="btn btn-ghost">← Back</a>
+  </div>
+</nav>
+
+<div class="scan-header">
+  <div class="scan-header-top">
+    <div>
+      <div class="scan-target">
+        {{ session.target }}
+        <span class="scan-id-badge">#{{ session.id }}</span>
+      </div>
+      <div class="scan-meta">
+        <div class="meta-item">
+          <span class="meta-label">Status</span>
+          <span class="status-badge status-{{ session.status }}" id="statusBadge">{{ session.get_status_display }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Started</span>
+          <span class="meta-value">{{ session.created_at|date:"d M Y H:i:s" }}</span>
+        </div>
+        {% if session.completed_at %}
+        <div class="meta-item">
+          <span class="meta-label">Completed</span>
+          <span class="meta-value">{{ session.completed_at|date:"d M Y H:i:s" }}</span>
+        </div>
+        {% endif %}
+        <div class="meta-item">
+          <span class="meta-label">Nmap Flags</span>
+          <span class="meta-value" style="color:var(--text-dim)">{{ session.nmap_flags }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-counters">
+    <div class="counter-box">
+      <div class="counter-num c-port" id="cntPorts">{{ ports|length }}</div>
+      <div class="counter-label">Open Ports</div>
+    </div>
+    <div class="counter-box">
+      <div class="counter-num c-dir" id="cntDirs">{{ directories|length }}</div>
+      <div class="counter-label">Directories</div>
+    </div>
+    <div class="counter-box">
+      <div class="counter-num c-vhost" id="cntVhosts">{{ vhosts|length }}</div>
+      <div class="counter-label">VHosts</div>
+    </div>
+    <div class="counter-box">
+      <div class="counter-num c-dns" id="cntDns">{{ dns_records|length }}</div>
+      <div class="counter-label">DNS Records</div>
+    </div>
+    <div class="counter-box">
+      <div class="counter-num c-total" id="cntTotal">
+        {{ ports|length|add:directories|length|add:vhosts|length|add:dns_records|length }}
+      </div>
+      <div class="counter-label">Total Findings</div>
+    </div>
+  </div>
+</div>
+
+<!-- TABS BAR -->
+<div class="tabs-bar">
+  <button class="tab-btn active" onclick="switchTab('overview',this)">Overview</button>
+  <button class="tab-btn" onclick="switchTab('findings',this)">
+    Recon Intelligence
+    <span class="tab-count" id="tabFindingsCount">{{ ports|length|add:directories|length|add:vhosts|length|add:dns_records|length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('ports',this)">
+    Ports <span class="tab-count">{{ ports|length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('domains',this)">
+    Domains <span class="tab-count">{{ dns_records|length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('vhosts',this)">
+    VHosts <span class="tab-count">{{ vhosts|length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('directories',this)">
+    Directories <span class="tab-count">{{ directories|length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('raw',this)">Raw Output</button>
+  <button class="tab-btn" onclick="switchTab('timeline',this)">Timeline</button>
+</div>
+
+<div class="content">
+
+  <!-- ── OVERVIEW TAB ── -->
+  <div class="tab-panel active" id="tab-overview">
+    {% if session.error_message %}
+    <div class="error-banner">
+      <span>⚠</span>
+      <div>
+        <strong>Error:</strong> {{ session.error_message }}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="overview-grid">
+      <!-- Scan info -->
+      <div class="info-card">
+        <div class="card-header">📋 Scan Configuration</div>
+        <div class="card-body">
+          <div class="kv-row">
+            <span class="kv-key">Target</span>
+            <span class="kv-val">{{ session.target }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">Status</span>
+            <span class="kv-val">{{ session.get_status_display }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">Nmap Flags</span>
+            <span class="kv-val" style="color:var(--text-dim)">{{ session.nmap_flags }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">Dir Wordlist</span>
+            <span class="kv-val" style="color:var(--text-dim)">{{ session.dir_wordlist|default:"—" }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">VHost Wordlist</span>
+            <span class="kv-val" style="color:var(--text-dim)">{{ session.vhost_wordlist|default:"—" }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">DNS Wordlist</span>
+            <span class="kv-val" style="color:var(--text-dim)">{{ session.dns_wordlist|default:"—" }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">Confirmed Domains</span>
+            <span class="kv-val">{% for d in session.confirmed_domains %}{{ d }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Module runs -->
+      <div class="info-card">
+        <div class="card-header">⚙ Module Execution</div>
+        <div class="card-body">
+          {% if module_runs %}
+          <div class="module-run-list">
+            {% for run in module_runs %}
+            <div class="module-run-item">
+              <div class="module-status-dot dot-{{ run.status }}"></div>
+              <div class="module-run-name">{{ run.module_name }}</div>
+              <div class="module-dur">
+                {% if run.duration_seconds %}{{ run.duration_seconds }}s{% else %}—{% endif %}
+              </div>
+              <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">{{ run.status }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div style="color:var(--text-muted);font-size:12px;padding:16px 0;text-align:center">No module data yet</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RECON INTELLIGENCE TAB ── -->
+  <div class="tab-panel" id="tab-findings">
+
+    <!-- Open Ports section -->
+    <div class="intel-section">
+      <div class="section-header">
+        <span class="section-title">Open Ports</span>
+        <span class="section-count">{{ ports|length }}</span>
+        <div class="section-divider"></div>
+      </div>
+      <div class="port-list">
+        {% for port in ports %}
+        <div class="port-item">
+          <span class="port-num">{{ port.port }}</span>
+          <span class="port-proto">{{ port.protocol }}</span>
+          <span class="port-service">{{ port.service|upper|default:"UNKNOWN" }}</span>
+          <span class="port-product">{{ port.product }}{% if port.version %} {{ port.version }}{% endif %}</span>
+          {% if port.is_http %}<span class="port-http-badge">HTTP</span>{% endif %}
+        </div>
+        {% empty %}
+        <div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px">No ports discovered</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Domains section -->
+    <div class="intel-section">
+      <div class="section-header">
+        <span class="section-title">Domains</span>
+        <span class="section-count">{{ dns_records|length }}</span>
+        <div class="section-divider"></div>
+      </div>
+      <div class="domain-list">
+        {% for rec in dns_records %}
+        <div class="domain-item">
+          <span class="domain-icon">◎</span>
+          <span class="domain-name">{{ rec.subdomain }}</span>
+          <span class="domain-source">{{ rec.record_type }}</span>
+          <span style="color:var(--text-dim);font-size:11px;">→ {{ rec.value }}</span>
+        </div>
+        {% empty %}
+        {% if session.confirmed_domains %}
+        {% for d in session.confirmed_domains %}
+        <div class="domain-item">
+          <span class="domain-icon">◎</span>
+          <span class="domain-name">{{ d }}</span>
+          <span class="domain-source">confirmed</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px">No domains discovered</div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- VHosts section -->
+    {% if vhosts %}
+    <div class="intel-section">
+      <div class="section-header">
+        <span class="section-title">Virtual Hosts</span>
+        <span class="section-count">{{ vhosts|length }}</span>
+        <div class="section-divider"></div>
+      </div>
+      {% for v in vhosts %}
+      <div class="vhost-item">
+        <span class="domain-icon">⬡</span>
+        <span class="vhost-name">{{ v.hostname }}</span>
+        <span style="color:var(--text-muted);font-size:11px;">:{{ v.port }}</span>
+        <span class="sc-badge {% if v.status_code >= 200 and v.status_code < 300 %}sc-2xx{% elif v.status_code >= 300 and v.status_code < 400 %}sc-3xx{% elif v.status_code >= 400 %}sc-4xx{% else %}sc-other{% endif %}">
+          {{ v.status_code }}
+        </span>
+        <span style="color:var(--text-muted);font-size:11px;">{{ v.content_length }}B</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Directories section -->
+    {% if directories %}
+    <div class="intel-section">
+      <div class="section-header">
+        <span class="section-title">Directories</span>
+        <span class="section-count">{{ directories|length }}</span>
+        <div class="section-divider"></div>
+      </div>
+      {% for d in directories %}
+      <div class="dir-item">
+        <span class="sc-badge {% if d.status_code >= 200 and d.status_code < 300 %}sc-2xx{% elif d.status_code >= 300 and d.status_code < 400 %}sc-3xx{% elif d.status_code >= 400 %}sc-4xx{% else %}sc-other{% endif %}">
+          {{ d.status_code }}
+        </span>
+        <span class="dir-url">{{ d.url }}</span>
+        <span class="dir-size">{{ d.size }}B</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ── PORTS TAB ── -->
+  <div class="tab-panel" id="tab-ports">
+    <div class="port-list">
+      {% for port in ports %}
+      <div class="port-item">
+        <span class="port-num">{{ port.port }}</span>
+        <span class="port-proto">{{ port.protocol }}</span>
+        <span class="port-service">{{ port.service|upper|default:"UNKNOWN" }}</span>
+        <span class="port-product" style="flex:1">{{ port.product }}{% if port.version %} {{ port.version }}{% endif %}</span>
+        <span style="color:var(--text-muted);font-size:11px;">{{ port.state }}</span>
+        {% if port.is_http %}<span class="port-http-badge">HTTP</span>{% endif %}
+      </div>
+      {% empty %}
+      <div style="color:var(--text-muted);padding:40px;text-align:center;font-size:12px">No open ports found</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── DOMAINS TAB ── -->
+  <div class="tab-panel" id="tab-domains">
+    <table class="dns-table" style="background:var(--bg-1);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <thead>
+        <tr>
+          <th>Subdomain</th>
+          <th>Type</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rec in dns_records %}
+        <tr>
+          <td style="color:var(--green);font-weight:500;">{{ rec.subdomain }}</td>
+          <td><span class="dns-type-badge">{{ rec.record_type }}</span></td>
+          <td style="color:var(--text-dim);">{{ rec.value }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text-muted)">No DNS records found</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── VHOSTS TAB ── -->
+  <div class="tab-panel" id="tab-vhosts">
+    {% for v in vhosts %}
+    <div class="vhost-item">
+      <span class="domain-icon">⬡</span>
+      <span class="vhost-name">{{ v.hostname }}</span>
+      <span style="color:var(--text-muted);font-size:11px;">port :{{ v.port }}</span>
+      <span class="sc-badge {% if v.status_code >= 200 and v.status_code < 300 %}sc-2xx{% elif v.status_code >= 300 and v.status_code < 400 %}sc-3xx{% elif v.status_code >= 400 %}sc-4xx{% else %}sc-other{% endif %}">
+        {{ v.status_code }}
+      </span>
+      <span style="color:var(--text-muted);font-size:11px;">{{ v.content_length }}B · {{ v.words }}w · {{ v.lines }}l</span>
+    </div>
+    {% empty %}
+    <div style="color:var(--text-muted);padding:40px;text-align:center;font-size:12px">No virtual hosts discovered</div>
+    {% endfor %}
+  </div>
+
+  <!-- ── DIRECTORIES TAB ── -->
+  <div class="tab-panel" id="tab-directories">
+    {% for d in directories %}
+    <div class="dir-item">
+      <span class="sc-badge {% if d.status_code >= 200 and d.status_code < 300 %}sc-2xx{% elif d.status_code >= 300 and d.status_code < 400 %}sc-3xx{% elif d.status_code >= 400 %}sc-4xx{% else %}sc-other{% endif %}">
+        {{ d.status_code }}
+      </span>
+      <span class="dir-url">{{ d.url }}</span>
+      <span class="dir-size">{{ d.size }}B · port {{ d.port }}</span>
+    </div>
+    {% empty %}
+    <div style="color:var(--text-muted);padding:40px;text-align:center;font-size:12px">No directories found</div>
+    {% endfor %}
+  </div>
+
+  <!-- ── RAW OUTPUT TAB ── -->
+  <div class="tab-panel" id="tab-raw">
+    <div class="raw-tabs" id="rawTabs">
+      <!-- populated by JS -->
+      <span style="color:var(--text-muted);font-size:12px;" id="rawLoading"><span class="spinner"></span> Loading raw output...</span>
+    </div>
+    <div id="rawPanels"></div>
+  </div>
+
+  <!-- ── TIMELINE TAB ── -->
+  <div class="tab-panel" id="tab-timeline">
+    <div class="timeline" id="timelineContainer">
+      {% for ev in timeline %}
+      <div class="tl-item ev-{{ ev.event_type }}">
+        <div class="tl-time">{{ ev.timestamp|date:"H:i:s" }}</div>
+        <div class="tl-content">
+          <div class="tl-message">{{ ev.message }}</div>
+          {% if ev.module %}
+          <div class="tl-module">[ {{ ev.module }} ]</div>
+          {% endif %}
+          {% if ev.data %}
+          <div class="tl-data">
+            {% for k,v in ev.data.items %}{{ k }}: {{ v }}  {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <div style="color:var(--text-muted);padding:40px;text-align:center;font-size:12px">No timeline events yet</div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div><!-- /content -->
+
+<script>
+const SESSION_ID = {{ session.id }};
+const IS_TERMINAL = {{ session.status|yesno:"false,false,false"|default:"false" }};
+
+function getCsrf() {
+  return document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('csrftoken='))?.split('=')[1]||'';
+}
+
+// ── Tab switching ──
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+
+  if (id === 'raw') loadRawOutput();
+}
+
+// ── Raw output ──
+let rawLoaded = false;
+
+async function loadRawOutput() {
+  if (rawLoaded) return;
+  rawLoaded = true;
+
+  const resp = await fetch(`/api/scan/${SESSION_ID}/`);
+  const data = await resp.json();
+
+  const modules = data.module_runs;
+  document.getElementById('rawLoading').remove();
+
+  const tabsEl = document.getElementById('rawTabs');
+  const panelsEl = document.getElementById('rawPanels');
+
+  if (!modules.length) {
+    tabsEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No module runs recorded</span>';
+    return;
+  }
+
+  modules.forEach((mr, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'raw-tab-btn' + (i===0?' active':'');
+    btn.textContent = mr.module_name;
+    btn.onclick = () => {
+      document.querySelectorAll('.raw-tab-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.raw-tab-panel').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('rawpanel-'+mr.module_name).classList.add('active');
+    };
+    tabsEl.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'raw-tab-panel' + (i===0?' active':'');
+    panel.id = 'rawpanel-' + mr.module_name;
+    panel.innerHTML = `
+      <div class="raw-output-area">
+        <div class="raw-header">
+          <span>${mr.module_name} · <span style="color:${mr.status==='completed'?'var(--green)':mr.status==='failed'?'var(--red)':'var(--text-dim)'}">
+            ${mr.status}</span> · ${mr.duration_seconds ? mr.duration_seconds+'s' : '—'}</span>
+          <button class="copy-btn" onclick="copyRaw('${mr.module_name}')">Copy</button>
+        </div>
+        <div class="raw-empty" id="rawcontent-${mr.module_name}">
+          <span class="spinner"></span> Loading...
+        </div>
+      </div>`;
+    panelsEl.appendChild(panel);
+
+    // Fetch raw content for first module immediately
+    if (i === 0) fetchModuleRaw(mr.module_name);
+  });
+
+  // Lazy load on tab click
+  tabsEl.querySelectorAll('.raw-tab-btn').forEach((btn, i) => {
+    const mn = modules[i].module_name;
+    btn.addEventListener('click', () => fetchModuleRaw(mn));
+  });
+}
+
+async function fetchModuleRaw(moduleName) {
+  const el = document.getElementById('rawcontent-' + moduleName);
+  if (!el || el.tagName === 'PRE') return; // already loaded
+
+  const resp = await fetch(`/api/scan/${SESSION_ID}/raw/${moduleName}/`);
+  const data = await resp.json();
+
+  const content = (data.stdout || '') + (data.stderr ? '\n\n--- STDERR ---\n' + data.stderr : '');
+
+  if (!content.trim()) {
+    el.innerHTML = '<span style="color:var(--text-muted)">No output captured</span>';
+    return;
+  }
+
+  const pre = document.createElement('pre');
+  pre.className = 'raw-pre';
+  pre.id = 'rawcontent-' + moduleName;
+  pre.textContent = content;
+  el.replaceWith(pre);
+}
+
+function copyRaw(moduleName) {
+  const el = document.getElementById('rawcontent-' + moduleName);
+  if (el) navigator.clipboard.writeText(el.textContent);
+}
+
+// ── Scan actions ──
+async function stopScan() {
+  if (!confirm('Stop this scan?')) return;
+  await fetch(`/scan/${SESSION_ID}/stop/`, {method:'POST', headers:{'X-CSRFToken':getCsrf()}});
+  location.reload();
+}
+
+async function deleteScan() {
+  if (!confirm('Delete this scan and all findings?')) return;
+  await fetch(`/scan/${SESSION_ID}/delete/`, {method:'POST', headers:{'X-CSRFToken':getCsrf()}});
+  window.location = '/scans/';
+}
+
+// ── Live updates via WebSocket ──
+const STATUS = "{{ session.status }}";
+const TERMINAL_STATUSES = ['completed','failed','stopped'];
+
+if (!TERMINAL_STATUSES.includes(STATUS)) {
+  const ws = new WebSocket(`ws://${location.host}/ws/scan/${SESSION_ID}/`);
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    const ev = msg.message;
+
+    if (!ev) return;
+
+    // Reload page on terminal events
+    if (['scan_completed','scan_failed','scan_stopped'].includes(ev.type)) {
+      setTimeout(() => location.reload(), 1200);
+    }
+  };
+
+  ws.onerror = () => {};
+}
+</script>
+</body>
+</html>
